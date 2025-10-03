@@ -14,6 +14,10 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device):
     with torch.set_grad_enabled(True):
         model.train()
 
+        total_loss = 0.0
+        total_samples = 0
+        total_batches = 0
+
         for features, pseudo_labels, reweight, _, _ in dataloader:
             bs, nc, t, dim = features.shape
             features = features.type(torch.float).to(device)
@@ -26,9 +30,17 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device):
             loss_cls.backward()
             optimizer_model.step()
 
+            total_loss += loss_cls.item()
+            total_samples += bs * nc * t
+            total_batches += 1
+
+        avg_loss = total_loss / max(total_batches, 1)
+
         logger.info('Epoch: [{:.0f}/{:.0f}], '
                     'sample_num: {}, '
-                    'loss_cls: {:.2f}.'.format(epoch, args.epochs, bs*t*nc, loss_cls))
+                    'loss_cls: {:.4f}.'.format(epoch, args.epochs, total_samples, avg_loss))
+
+        return avg_loss
 
 def test(model, test_loader, device, is_train_sample=False):
     if is_train_sample:
@@ -123,11 +135,33 @@ def extract_features(dataloader):
 
     return features_all.type(torch.float32), video_name_all, pseudo_labels_all, normal_video_names_high_confidence
 
+
+def compute_weight_statistics(model):
+    with torch.no_grad():
+        l1_sum = 0.0
+        l2_sum = 0.0
+        max_abs = 0.0
+        for param in model.parameters():
+            data = param.detach().float()
+            l1_sum += torch.sum(torch.abs(data)).item()
+            l2_sum += torch.sum(data * data).item()
+            max_abs = max(max_abs, torch.max(torch.abs(data)).item())
+
+    return l1_sum, l2_sum ** 0.5, max_abs
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--load_config', 
                         dest='config_file',
                         help='The yaml configuration file')
+    parser.add_argument('--use_wandb', dest='use_wandb', action='store_true', help='Enable Weights & Biases logging')
+    parser.add_argument('--no_wandb', dest='use_wandb', action='store_false', help='Disable Weights & Biases logging')
+    parser.set_defaults(use_wandb=False)
+    parser.add_argument('--wandb_project', type=str, default=None, help='Weights & Biases project name')
+    parser.add_argument('--wandb_entity', type=str, default=None, help='Weights & Biases entity (team) name')
+    parser.add_argument('--wandb_run_name', type=str, default=None, help='Weights & Biases run name')
+    parser.add_argument('--wandb_group', type=str, default=None, help='Weights & Biases group name')
+    parser.add_argument('--wandb_tags', nargs='*', default=None, help='Weights & Biases tags')
     args, unprocessed_args = parser.parse_known_args()
 
     if args.config_file:
@@ -152,6 +186,29 @@ if __name__ == '__main__':
     '''build model'''
     model = prepare_model(args, device)
     loss_criterion = Loss_bce()
+
+    total_params = sum(p.numel() for p in model.parameters())
+    wandb_run = None
+    if args.use_wandb:
+        try:
+            import wandb
+        except ImportError as exc:
+            raise ImportError('Weights & Biases (wandb) is not installed. Please install wandb or disable logging.') from exc
+
+        run_name = args.wandb_run_name if args.wandb_run_name else os.path.basename(ckpt_path)
+        run_tags = args.wandb_tags if args.wandb_tags not in (None, []) else None
+        wandb_run = wandb.init(project=args.wandb_project or 'lanp-uvad',
+                               entity=args.wandb_entity if args.wandb_entity else None,
+                               name=run_name,
+                               group=args.wandb_group if args.wandb_group else None,
+                               tags=run_tags)
+
+        config_dict = {k: v for k, v in vars(args).items() if k != 'config_file'}
+        config_dict['total_parameters'] = total_params
+        config_dict['ckpt_path'] = ckpt_path
+        wandb.config.update(config_dict, allow_val_change=True)
+        wandb_run.summary['num_parameters'] = total_params
+        wandb.watch(model, log='all', log_freq=100)
 
     test_loader, train_loader, train_eval_loader, train_loader_cluster = CreateDataset(args, logger)
     
@@ -184,18 +241,39 @@ if __name__ == '__main__':
     updated_tag = memory.update_dataloader(train_loader)
     logger.info(memory.logger_info)
     
+    if args.use_wandb and wandb_run is not None:
+        initial_l1, initial_l2, initial_abs_max = compute_weight_statistics(model)
+        wandb.log({'epoch': 0,
+                   'model/weight_l1_norm': initial_l1,
+                   'model/weight_l2_norm': initial_l2,
+                   'model/weight_abs_max': initial_abs_max}, step=0)
+
     for epoch in range(1, args.epochs + 1):
 
-        train(train_loader, model, optimizer_model, loss_criterion, epoch, device)
+        train_loss = train(train_loader, model, optimizer_model, loss_criterion, epoch, device)
+
+        if args.use_wandb and wandb_run is not None:
+            weight_l1, weight_l2, weight_abs_max = compute_weight_statistics(model)
+            wandb.log({'epoch': epoch,
+                       'train/loss': train_loss,
+                       'model/weight_l1_norm': weight_l1,
+                       'model/weight_l2_norm': weight_l2,
+                       'model/weight_abs_max': weight_abs_max}, step=epoch)
             
         if epoch % args.test_freq == 0:
             scores_dist, test_prauc, test_rocauc = test(model=model, test_loader=test_loader, device=device)
+            if args.use_wandb and wandb_run is not None:
+                wandb.log({'epoch': epoch,
+                           'val/pr_auc': test_prauc,
+                           'val/roc_auc': test_rocauc}, step=epoch)
             
             if test_rocauc > best_AUC:
                 best_AUC = test_rocauc
                 best_epoch_AUC = epoch
                 torch.save(model.state_dict(), best_auc_path)
                 logger.info('Saved new best AUC checkpoint to {}'.format(best_auc_path))
+                if args.use_wandb and wandb_run is not None:
+                    wandb_run.summary['best_val_roc_auc'] = best_AUC
             if test_rocauc > args.th_auc*100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.
@@ -205,6 +283,8 @@ if __name__ == '__main__':
                 best_epoch_PR = epoch
                 torch.save(model.state_dict(), best_pr_path)
                 logger.info('Saved new best PR checkpoint to {}'.format(best_pr_path))
+                if args.use_wandb and wandb_run is not None:
+                    wandb_run.summary['best_val_pr_auc'] = best_PR
             if test_prauc > args.th_pr*100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.format(epoch, test_rocauc, test_prauc)))
@@ -214,3 +294,11 @@ if __name__ == '__main__':
 
     torch.save(model.state_dict(), last_epoch_path)
     logger.info('Saved last epoch checkpoint to {}'.format(last_epoch_path))
+
+    if args.use_wandb and wandb_run is not None:
+        wandb_run.summary['best_val_roc_auc'] = best_AUC
+        wandb_run.summary['best_val_pr_auc'] = best_PR
+        wandb_run.summary['best_auc_checkpoint'] = best_auc_path
+        wandb_run.summary['best_pr_checkpoint'] = best_pr_path
+        wandb_run.summary['last_epoch_checkpoint'] = last_epoch_path
+        wandb.finish()
