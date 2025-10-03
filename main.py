@@ -162,6 +162,9 @@ def parse_args():
     parser.add_argument('--wandb_run_name', type=str, default=None, help='Weights & Biases run name')
     parser.add_argument('--wandb_group', type=str, default=None, help='Weights & Biases group name')
     parser.add_argument('--wandb_tags', nargs='*', default=None, help='Weights & Biases tags')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
+    parser.add_argument('--device', type=str, default=None, help='Compute device to use (e.g., cuda or cpu)')
+    parser.add_argument('--gpu_id', type=int, default=None, help='GPU index to use when device is cuda')
     args, unprocessed_args = parser.parse_known_args()
 
     if args.config_file:
