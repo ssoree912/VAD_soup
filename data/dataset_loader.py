@@ -45,18 +45,14 @@ def CreateDataset(args, logger):
     dataset_train.initialize(args, is_train=True, is_normal=False)
     logger.info(dataset_train.logger_info)
 
-    dataset_cluster = Dataset()
-    dataset_cluster.initialize(args, is_train=True, is_normal=False)
-
     dataset_train_eval = Dataset()
     dataset_train_eval.initialize(args, sample_type="uniform", is_train=False, eval_train=True)
 
     test_loader = DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=0, pin_memory=True, drop_last=False)
     train_loader = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True, drop_last=True)
-    train_loader_cluster = DataLoader(dataset_cluster, batch_size=1, shuffle=False, num_workers=0, pin_memory=True, drop_last=False)
     train_eval_loader = DataLoader(dataset_train_eval, batch_size=1, shuffle=False, pin_memory=True, drop_last=False)
 
     logger.info("dataset [%s] was created" % (args.dataset))
-    
 
-    return test_loader, train_loader, train_eval_loader, train_loader_cluster
+
+    return test_loader, train_loader, train_eval_loader, None

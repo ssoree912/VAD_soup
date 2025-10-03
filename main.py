@@ -115,27 +115,6 @@ def prepare_model(args, device):
 
     return cls_model
 
-def extract_features(dataloader):
-    features_all = []
-    video_name_all = []
-    pseudo_labels_all = []
-    normal_video_names_high_confidence = []
-    for features, pseudo_labels, _, high_confidence_norvideo_tag, video_name in dataloader:
-        if features.shape[1] != 1:
-            features = torch.unsqueeze(torch.mean(features, dim=1), 1)
-        features_all.append(features)
-        video_name_all.append(video_name)
-        pseudo_labels_all.append(pseudo_labels)
-        if high_confidence_norvideo_tag: normal_video_names_high_confidence.append(video_name)
-    
-    features_all = torch.cat(features_all, 0)
-    video_name_all = np.concatenate(video_name_all)
-    pseudo_labels_all = torch.cat(pseudo_labels_all)
-    normal_video_names_high_confidence = np.concatenate(normal_video_names_high_confidence)
-
-    return features_all.type(torch.float32), video_name_all, pseudo_labels_all, normal_video_names_high_confidence
-
-
 def compute_weight_statistics(model):
     with torch.no_grad():
         l1_sum = 0.0
@@ -217,7 +196,7 @@ if __name__ == '__main__':
         wandb_run.summary['num_parameters'] = total_params
         wandb.watch(model, log='all', log_freq=100)
 
-    test_loader, train_loader, train_eval_loader, train_loader_cluster = CreateDataset(args, logger)
+    test_loader, train_loader, train_eval_loader, _ = CreateDataset(args, logger)
     
     '''load pretrained model'''
     if args.pretrained_path is not None:
@@ -239,13 +218,8 @@ if __name__ == '__main__':
     best_pr_path = os.path.join(ckpt_path, 'best_pr.pkl')
     last_epoch_path = os.path.join(ckpt_path, 'last_epoch.pkl')
     
-    with torch.no_grad():
-        features_all, video_name_all, pseudo_labels_all, video_names_nor_hc = extract_features(train_loader_cluster)
-
-    memory = Memory_module(extracted_features=features_all.clone().to(device),
-                            video_name_all=video_name_all, video_names_nor_hc=video_names_nor_hc,
-                            pseudo_labels=pseudo_labels_all)
-    updated_tag = memory.update_dataloader(train_loader)
+    memory = Memory_module(train_loader.dataset, device)
+    updated_tag = memory.update_dataloader()
     logger.info(memory.logger_info)
     
     if args.use_wandb and wandb_run is not None:
