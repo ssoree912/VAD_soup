@@ -6,5 +6,7 @@ data/shanghaitech/testing
 data/ucf-crime/features
 data/ucf-crime/info_ucf.txt
 data/shanghaitech/info_sh.txt
+data/shanghaitech/training
+wandb
 logger
 ckpts
