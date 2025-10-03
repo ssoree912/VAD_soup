@@ -150,10 +150,13 @@ def compute_weight_statistics(model):
     return l1_sum, l2_sum ** 0.5, max_abs
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--load_config', 
-                        dest='config_file',
-                        help='The yaml configuration file')
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument('--load_config',
+                               dest='config_file',
+                               help='The yaml configuration file')
+    config_args, remaining_argv = config_parser.parse_known_args()
+
+    parser = argparse.ArgumentParser(parents=[config_parser])
     parser.add_argument('--use_wandb', dest='use_wandb', action='store_true', help='Enable Weights & Biases logging')
     parser.add_argument('--no_wandb', dest='use_wandb', action='store_false', help='Disable Weights & Biases logging')
     parser.set_defaults(use_wandb=False)
@@ -165,13 +168,14 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
     parser.add_argument('--device', type=str, default=None, help='Compute device to use (e.g., cuda or cpu)')
     parser.add_argument('--gpu_id', type=int, default=None, help='GPU index to use when device is cuda')
-    args, unprocessed_args = parser.parse_known_args()
 
-    if args.config_file:
-        with open(args.config_file, 'r') as f:
-            parser.set_defaults(**yaml.load(f, Loader=yaml.FullLoader))
-    
-    args = parser.parse_args(unprocessed_args)
+    if config_args.config_file:
+        with open(config_args.config_file, 'r') as f:
+            cfg = yaml.load(f, Loader=yaml.FullLoader)
+            if cfg is not None:
+                parser.set_defaults(**cfg)
+
+    args = parser.parse_args(remaining_argv)
     return args
 
 if __name__ == '__main__':
