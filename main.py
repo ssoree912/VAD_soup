@@ -170,6 +170,10 @@ if __name__ == '__main__':
      
     best_AUC, best_PR = 0, 0
     best_epoch_AUC, best_epoch_PR = 0, 0
+
+    best_auc_path = os.path.join(ckpt_path, 'best_auc.pkl')
+    best_pr_path = os.path.join(ckpt_path, 'best_pr.pkl')
+    last_epoch_path = os.path.join(ckpt_path, 'last_epoch.pkl')
     
     with torch.no_grad():
         features_all, video_name_all, pseudo_labels_all, video_names_nor_hc = extract_features(train_loader_cluster)
@@ -190,6 +194,8 @@ if __name__ == '__main__':
             if test_rocauc > best_AUC:
                 best_AUC = test_rocauc
                 best_epoch_AUC = epoch
+                torch.save(model.state_dict(), best_auc_path)
+                logger.info('Saved new best AUC checkpoint to {}'.format(best_auc_path))
             if test_rocauc > args.th_auc*100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.
@@ -197,9 +203,14 @@ if __name__ == '__main__':
             if test_prauc > best_PR:
                 best_PR = test_prauc
                 best_epoch_PR = epoch
+                torch.save(model.state_dict(), best_pr_path)
+                logger.info('Saved new best PR checkpoint to {}'.format(best_pr_path))
             if test_prauc > args.th_pr*100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.format(epoch, test_rocauc, test_prauc)))
 
             logger.info('best_AUC {:.2f} at epoch {}.\t best_PR {:.2f} at epoch {}.'.format(best_AUC, best_epoch_AUC, best_PR, best_epoch_PR))
             logger.info('============================')
+
+    torch.save(model.state_dict(), last_epoch_path)
+    logger.info('Saved last epoch checkpoint to {}'.format(last_epoch_path))
