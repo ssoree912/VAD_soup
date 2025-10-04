@@ -1,10 +1,16 @@
 import argparse
 import logging
 import os
+import sys
 from collections import OrderedDict
 
 import torch
 import yaml
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(ROOT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from model import AD_Model
 from data.dataset_loader import CreateDataset
@@ -18,6 +24,7 @@ def parse_args():
     parser.add_argument('--load_config', dest='config_file', help='Configuration yaml for evaluation (optional).')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate the averaged checkpoint using the provided config.')
     parser.add_argument('--device', default=None, help='Override device for evaluation (cpu or cuda).')
+    parser.add_argument('--gpu_id', type=int, default=None, help='GPU index to use when device is cuda.')
     return parser.parse_args()
 
 
@@ -122,9 +129,11 @@ def main():
     args = load_config(cli_args.config_file)
     set_seeds(args.seed)
 
-    eval_device = cli_args.device or args.device
+    eval_device = cli_args.device or getattr(args, 'device', None)
+    eval_gpu_id = cli_args.gpu_id if cli_args.gpu_id is not None else getattr(args, 'gpu_id', 0)
+
     if eval_device == 'cuda' and torch.cuda.is_available():
-        device = torch.device('cuda:{}'.format(args.gpu_id))
+        device = torch.device('cuda:{}'.format(eval_gpu_id))
     else:
         device = torch.device('cpu')
         if eval_device == 'cuda':
