@@ -1,6 +1,7 @@
 import torch
 
 import os
+import shutil
 import numpy as np
 import yaml
 import argparse
@@ -88,9 +89,33 @@ def test(model, test_loader, device, is_train_sample=False):
         
         return scores_dist, prauc_frames, rocauc_frames
 
+def save_run_config(args, ckpt_path, logger):
+    config_dest = os.path.join(ckpt_path, 'config_used.yaml')
+    config_src = getattr(args, 'config_file', None)
+
+    if config_src and os.path.isfile(config_src):
+        try:
+            shutil.copy2(config_src, config_dest)
+            logger.info('Copied config file to {}'.format(config_dest))
+            return
+        except (OSError, IOError) as err:
+            logger.warning('Failed to copy config file ({}). Will dump runtime args instead.'.format(err))
+
+    try:
+        with open(config_dest, 'w') as handle:
+            yaml.safe_dump({k: v for k, v in vars(args).items() if k != 'config_file'}, handle, sort_keys=True)
+        logger.info('Saved run configuration to {}'.format(config_dest))
+    except (OSError, IOError) as err:
+        logger.warning('Failed to save run configuration: {}'.format(err))
+
+
 def prepare_log_files(args):
-    param_str = '{}_lr_{}_{}'.format(args.dataset, args.lr, get_timestamp())
-    
+    seed_tag = getattr(args, 'seed', None)
+    if seed_tag is None:
+        param_str = '{}_lr_{}_{}'.format(args.dataset, args.lr, get_timestamp())
+    else:
+        param_str = '{}_seed{}_lr_{}_{}'.format(args.dataset, seed_tag, args.lr, get_timestamp())
+
     ckpt_path = os.path.join(args.ckpt_path, args.dataset, param_str)
     if not os.path.exists(ckpt_path):
         os.makedirs(ckpt_path)
@@ -103,6 +128,8 @@ def prepare_log_files(args):
     logger.info('Train this model at time {}'.format(get_timestamp()))
     log_param(logger, args)
     logger.info(param_str)
+
+    save_run_config(args, ckpt_path, logger)
 
     return logger, ckpt_path
 
