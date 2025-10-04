@@ -1,9 +1,10 @@
-numpy==1.21.6
-torch==1.9.0
-torchvision==0.10.0
-torchaudio==0.9.0
-scikit-learn==0.24.2
-scipy==1.7.3
-tqdm==4.65.0
-PyYAML==5.4.1
-wandb==0.15.12
+--extra-index-url https://download.pytorch.org/whl/cu121
+numpy==1.26.4
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+torchaudio==2.2.2+cu121
+scikit-learn==1.4.2
+scipy==1.11.4
+tqdm==4.66.4
+PyYAML==6.0.1
+wandb==0.16.6
