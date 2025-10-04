@@ -118,10 +118,12 @@ def save_run_config(args, ckpt_path, logger):
 
 def prepare_log_files(args):
     seed_tag = getattr(args, 'seed', None)
+    pruning_suffix = 'pruned_' if getattr(args, 'use_pruning', False) else ''
     if seed_tag is None:
-        param_str = '{}_lr_{}_{}'.format(args.dataset, args.lr, get_timestamp())
+        param_str = '{}_{}lr_{}_{}'.format(args.dataset, pruning_suffix, args.lr, get_timestamp())
     else:
-        param_str = '{}_seed{}_lr_{}_{}'.format(args.dataset, seed_tag, args.lr, get_timestamp())
+        param_str = '{}_{}seed{}_lr_{}_{}'.format(args.dataset, pruning_suffix, seed_tag, args.lr, get_timestamp())
+    param_str = param_str.replace('__', '_')
 
     ckpt_path = os.path.join(args.ckpt_path, args.dataset, param_str)
     if not os.path.exists(ckpt_path):
