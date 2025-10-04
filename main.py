@@ -11,7 +11,7 @@ from model import AD_Model, Memory_module
 from loss import Loss_bce
 from data.dataset_loader import CreateDataset
 
-def train(dataloader, model, optimizer_model, criterion, epoch, device):
+def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_handler=None):
     with torch.set_grad_enabled(True):
         model.train()
 
@@ -29,7 +29,14 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device):
 
             optimizer_model.zero_grad()
             loss_cls.backward()
+
+            if pruning_handler is not None:
+                pruning_handler.apply_gradients()
+
             optimizer_model.step()
+
+            if pruning_handler is not None:
+                pruning_handler.apply_weights()
 
             total_loss += loss_cls.item()
             total_samples += bs * nc * t
@@ -155,6 +162,102 @@ def compute_weight_statistics(model):
 
     return l1_sum, l2_sum ** 0.5, max_abs
 
+
+class PruningHandler:
+    def __init__(self, model, magnitude_ratio, random_ratio, logger=None):
+        self.model = model
+        self.magnitude_ratio = max(0.0, float(magnitude_ratio)) if magnitude_ratio is not None else 0.0
+        self.random_ratio = max(0.0, float(random_ratio)) if random_ratio is not None else 0.0
+        self.logger = logger
+        self.entries = []
+        self.total_params = 0
+        self.pruned_params = 0
+        self._create_masks()
+
+    def _gather_candidate_params(self):
+        candidates = []
+        for name, param in self.model.named_parameters():
+            if (not param.requires_grad) or param.dim() <= 1:
+                continue
+            candidates.append((name, param))
+        return candidates
+
+    def _create_masks(self):
+        candidates = self._gather_candidate_params()
+        if not candidates:
+            if self.logger:
+                self.logger.warning('Pruning requested but no valid parameters were found.')
+            return
+
+        if self.magnitude_ratio <= 0.0 and self.random_ratio <= 0.0:
+            if self.logger:
+                self.logger.info('Pruning enabled but magnitude and random ratios are zero; skipping pruning.')
+            return
+
+        flat_weights = []
+        param_slices = []
+        cursor = 0
+        for name, param in candidates:
+            weight_flat = param.detach().float().abs().view(-1).cpu()
+            flat_weights.append(weight_flat)
+            numel = weight_flat.numel()
+            param_slices.append((name, param, cursor, cursor + numel))
+            cursor += numel
+
+        all_abs = torch.cat(flat_weights, dim=0)
+        total = all_abs.numel()
+        self.total_params = total
+        if total == 0:
+            return
+
+        global_mask = torch.ones(total, dtype=torch.bool)
+
+        # Magnitude pruning
+        k_mag = int(total * self.magnitude_ratio)
+        if k_mag > 0:
+            _, idx = torch.topk(all_abs, k_mag, largest=False)
+            global_mask[idx] = False
+
+        # Random pruning on remaining weights
+        remaining = torch.nonzero(global_mask, as_tuple=False).view(-1)
+        k_rand = int(total * self.random_ratio)
+        if k_rand > 0 and remaining.numel() > 0:
+            k_rand = min(k_rand, remaining.numel())
+            perm = torch.randperm(remaining.numel())[:k_rand]
+            rand_idx = remaining[perm]
+            global_mask[rand_idx] = False
+
+        self.pruned_params = total - int(global_mask.sum().item())
+
+        for name, param, start, end in param_slices:
+            mask_flat = global_mask[start:end].to(param.device, dtype=param.dtype)
+            mask_tensor = mask_flat.view_as(param).clone()
+            mask_tensor.requires_grad = False
+            param.data.mul_(mask_tensor)
+            self.entries.append({'name': name, 'param': param, 'mask': mask_tensor})
+
+        if self.logger:
+            self.logger.info('Applied pruning: magnitude {:.2f}%, random {:.2f}%, pruned {}/{} params ({:.2f}%).'.
+                             format(self.magnitude_ratio*100, self.random_ratio*100,
+                                    self.pruned_params, self.total_params,
+                                    (self.pruned_params / self.total_params) * 100 if self.total_params else 0.0))
+
+    def apply_gradients(self):
+        for entry in self.entries:
+            grad = entry['param'].grad
+            if grad is not None:
+                grad.data.mul_(entry['mask'])
+
+    def apply_weights(self):
+        for entry in self.entries:
+            entry['param'].data.mul_(entry['mask'])
+
+    @property
+    def sparsity(self):
+        if self.total_params == 0:
+            return 0.0
+        return self.pruned_params / self.total_params
+
 def parse_args():
     config_parser = argparse.ArgumentParser(add_help=False)
     config_parser.add_argument('--load_config',
@@ -171,6 +274,11 @@ def parse_args():
     parser.add_argument('--wandb_run_name', type=str, default=None, help='Weights & Biases run name')
     parser.add_argument('--wandb_group', type=str, default=None, help='Weights & Biases group name')
     parser.add_argument('--wandb_tags', nargs='*', default=None, help='Weights & Biases tags')
+    parser.add_argument('--use_pruning', dest='use_pruning', action='store_true', help='Enable parameter pruning at training start')
+    parser.add_argument('--no_pruning', dest='use_pruning', action='store_false', help='Disable parameter pruning')
+    parser.set_defaults(use_pruning=False)
+    parser.add_argument('--prune_magnitude_ratio', type=float, default=None, help='Fraction of parameters to prune by magnitude')
+    parser.add_argument('--prune_random_ratio', type=float, default=None, help='Fraction of parameters to prune randomly in addition')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
     parser.add_argument('--device', type=str, default=None, help='Compute device to use (e.g., cuda or cpu)')
     parser.add_argument('--gpu_id', type=int, default=None, help='GPU index to use when device is cuda')
@@ -223,6 +331,14 @@ if __name__ == '__main__':
         wandb_run.summary['num_parameters'] = total_params
         wandb.watch(model, log='all', log_freq=100)
 
+    pruning_handler = None
+    if args.use_pruning:
+        pruning_handler = PruningHandler(model, args.prune_magnitude_ratio, args.prune_random_ratio, logger)
+        if args.use_wandb and wandb_run is not None and pruning_handler.total_params:
+            wandb_run.summary['pruning/total_params'] = pruning_handler.total_params
+            wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
+            wandb_run.summary['pruning/sparsity'] = pruning_handler.sparsity
+
     test_loader, train_loader, train_eval_loader, _ = CreateDataset(args, logger)
     
     '''load pretrained model'''
@@ -251,29 +367,38 @@ if __name__ == '__main__':
     
     if args.use_wandb and wandb_run is not None:
         initial_l1, initial_l2, initial_abs_max = compute_weight_statistics(model)
-        wandb.log({'epoch': 0,
-                   'model/weight_l1_norm': initial_l1,
-                   'model/weight_l2_norm': initial_l2,
-                   'model/weight_abs_max': initial_abs_max}, step=0)
+        log_payload = {'epoch': 0,
+                       'model/weight_l1_norm': initial_l1,
+                       'model/weight_l2_norm': initial_l2,
+                       'model/weight_abs_max': initial_abs_max}
+        if pruning_handler is not None:
+            log_payload['pruning/sparsity'] = pruning_handler.sparsity
+        wandb.log(log_payload, step=0)
 
     for epoch in range(1, args.epochs + 1):
 
-        train_loss = train(train_loader, model, optimizer_model, loss_criterion, epoch, device)
+        train_loss = train(train_loader, model, optimizer_model, loss_criterion, epoch, device, pruning_handler=pruning_handler)
 
         if args.use_wandb and wandb_run is not None:
             weight_l1, weight_l2, weight_abs_max = compute_weight_statistics(model)
-            wandb.log({'epoch': epoch,
-                       'train/loss': train_loss,
-                       'model/weight_l1_norm': weight_l1,
-                       'model/weight_l2_norm': weight_l2,
-                       'model/weight_abs_max': weight_abs_max}, step=epoch)
+            log_payload = {'epoch': epoch,
+                           'train/loss': train_loss,
+                           'model/weight_l1_norm': weight_l1,
+                           'model/weight_l2_norm': weight_l2,
+                           'model/weight_abs_max': weight_abs_max}
+            if pruning_handler is not None:
+                log_payload['pruning/sparsity'] = pruning_handler.sparsity
+            wandb.log(log_payload, step=epoch)
             
         if epoch % args.test_freq == 0:
             scores_dist, test_prauc, test_rocauc = test(model=model, test_loader=test_loader, device=device)
             if args.use_wandb and wandb_run is not None:
-                wandb.log({'epoch': epoch,
-                           'val/pr_auc': test_prauc,
-                           'val/roc_auc': test_rocauc}, step=epoch)
+                val_payload = {'epoch': epoch,
+                               'val/pr_auc': test_prauc,
+                               'val/roc_auc': test_rocauc}
+                if pruning_handler is not None:
+                    val_payload['pruning/sparsity'] = pruning_handler.sparsity
+                wandb.log(val_payload, step=epoch)
             
             if test_rocauc > best_AUC:
                 best_AUC = test_rocauc
@@ -309,4 +434,8 @@ if __name__ == '__main__':
         wandb_run.summary['best_auc_checkpoint'] = best_auc_path
         wandb_run.summary['best_pr_checkpoint'] = best_pr_path
         wandb_run.summary['last_epoch_checkpoint'] = last_epoch_path
+        if pruning_handler is not None and pruning_handler.total_params:
+            wandb_run.summary['pruning/total_params'] = pruning_handler.total_params
+            wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
+            wandb_run.summary['pruning/sparsity'] = pruning_handler.sparsity
         wandb.finish()
