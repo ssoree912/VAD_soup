@@ -17,6 +17,8 @@ wandb_tags: []
 use_pruning: false
 prune_magnitude_ratio: 0.05
 prune_random_ratio: 0.05
+use_early_unprune: false
+unprune_ratio: 0.3
 
 epochs: 300
 batch_size: 30

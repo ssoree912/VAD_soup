@@ -118,7 +118,10 @@ def save_run_config(args, ckpt_path, logger):
 
 def prepare_log_files(args):
     seed_tag = getattr(args, 'seed', None)
-    pruning_suffix = 'pruned_' if getattr(args, 'use_pruning', False) else ''
+    if getattr(args, 'use_pruning', False):
+        pruning_suffix = 'prunedEarly_' if getattr(args, 'use_early_unprune', False) else 'pruned_'
+    else:
+        pruning_suffix = ''
     if seed_tag is None:
         param_str = '{}_{}lr_{}_{}'.format(args.dataset, pruning_suffix, args.lr, get_timestamp())
     else:
@@ -174,6 +177,9 @@ class PruningHandler:
         self.entries = []
         self.total_params = 0
         self.pruned_params = 0
+        self.active = False
+        self.released = False
+        self.release_epoch = None
         self._create_masks()
 
     def _gather_candidate_params(self):
@@ -235,8 +241,12 @@ class PruningHandler:
             mask_flat = global_mask[start:end].to(param.device, dtype=param.dtype)
             mask_tensor = mask_flat.view_as(param).clone()
             mask_tensor.requires_grad = False
+            original_pruned = (param.data * (1 - mask_tensor))
             param.data.mul_(mask_tensor)
-            self.entries.append({'name': name, 'param': param, 'mask': mask_tensor})
+            self.entries.append({'name': name,
+                                 'param': param,
+                                 'mask': mask_tensor,
+                                 'original_pruned': original_pruned})
 
         if self.logger:
             self.logger.info('Applied pruning: magnitude {:.2f}%, random {:.2f}%, pruned {}/{} params ({:.2f}%).'.
@@ -244,13 +254,19 @@ class PruningHandler:
                                     self.pruned_params, self.total_params,
                                     (self.pruned_params / self.total_params) * 100 if self.total_params else 0.0))
 
+        self.active = len(self.entries) > 0 and (self.magnitude_ratio > 0 or self.random_ratio > 0)
+
     def apply_gradients(self):
+        if not self.active or self.released:
+            return
         for entry in self.entries:
             grad = entry['param'].grad
             if grad is not None:
                 grad.data.mul_(entry['mask'])
 
     def apply_weights(self):
+        if not self.active or self.released:
+            return
         for entry in self.entries:
             entry['param'].data.mul_(entry['mask'])
 
@@ -259,6 +275,27 @@ class PruningHandler:
         if self.total_params == 0:
             return 0.0
         return self.pruned_params / self.total_params
+
+    def release(self, epoch=None):
+        if not self.active or self.released:
+            return
+
+        for entry in self.entries:
+            param = entry['param']
+            mask = entry['mask']
+            restored = entry.get('original_pruned')
+            if restored is not None:
+                param.data.add_(restored.to(param.device, dtype=param.dtype))
+            if param.grad is not None:
+                param.grad.data.mul_(mask)
+        self.active = False
+        self.released = True
+        self.pruned_params = 0
+        self.release_epoch = epoch
+        self.entries = []
+        if self.logger:
+            msg_epoch = epoch if epoch is not None else 'N/A'
+            self.logger.info('Pruning masks released at epoch {}. Model returned to full capacity.'.format(msg_epoch))
 
 def parse_args():
     config_parser = argparse.ArgumentParser(add_help=False)
@@ -281,9 +318,18 @@ def parse_args():
     parser.set_defaults(use_pruning=False)
     parser.add_argument('--prune_magnitude_ratio', type=float, default=None, help='Fraction of parameters to prune by magnitude')
     parser.add_argument('--prune_random_ratio', type=float, default=None, help='Fraction of parameters to prune randomly in addition')
+    parser.add_argument('--use_early_unprune', dest='use_early_unprune', action='store_true', help='Release pruning masks after a portion of training')
+    parser.add_argument('--no_early_unprune', dest='use_early_unprune', action='store_false', help='Keep pruning masks active through entire training')
+    parser.set_defaults(use_early_unprune=False)
+    parser.add_argument('--unprune_ratio', type=float, default=None, help='Fraction of total epochs after which pruning masks are released (0~1)')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
     parser.add_argument('--device', type=str, default=None, help='Compute device to use (e.g., cuda or cpu)')
     parser.add_argument('--gpu_id', type=int, default=None, help='GPU index to use when device is cuda')
+    parser.add_argument('--save_threshold_checkpoints', dest='save_threshold_checkpoints', action='store_true',
+                        help='Save extra checkpoints whenever validation metrics pass thresholds')
+    parser.add_argument('--no_save_threshold_checkpoints', dest='save_threshold_checkpoints', action='store_false',
+                        help='Disable saving checkpoint files for every threshold hit (default)')
+    parser.set_defaults(save_threshold_checkpoints=False)
 
     if config_args.config_file:
         with open(config_args.config_file, 'r') as f:
@@ -341,6 +387,15 @@ if __name__ == '__main__':
             wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
             wandb_run.summary['pruning/sparsity'] = pruning_handler.sparsity
 
+    unprune_epoch = None
+    if (pruning_handler is not None and pruning_handler.active and getattr(args, 'use_early_unprune', False)):
+        ratio = args.unprune_ratio if args.unprune_ratio is not None else 0.3
+        ratio = max(0.0, min(1.0, float(ratio)))
+        unprune_epoch = max(1, int(np.ceil(args.epochs * ratio)))
+        if unprune_epoch >= args.epochs:
+            unprune_epoch = args.epochs
+        logger.info('Early unprune scheduled after epoch {} (ratio {:.2f}).'.format(unprune_epoch, ratio))
+
     test_loader, train_loader, train_eval_loader, _ = CreateDataset(args, logger)
     
     '''load pretrained model'''
@@ -379,6 +434,14 @@ if __name__ == '__main__':
 
     for epoch in range(1, args.epochs + 1):
 
+        if (pruning_handler is not None and pruning_handler.active and getattr(args, 'use_early_unprune', False)
+                and unprune_epoch is not None and epoch > unprune_epoch):
+            pruning_handler.release(epoch)
+            if args.use_wandb and wandb_run is not None:
+                wandb.log({'epoch': epoch, 'pruning/released': 1}, step=epoch)
+                wandb_run.summary['pruning/release_epoch'] = epoch
+            logger.info('Early unprune applied before epoch {}.'.format(epoch))
+
         train_loss = train(train_loader, model, optimizer_model, loss_criterion, epoch, device, pruning_handler=pruning_handler)
 
         if args.use_wandb and wandb_run is not None:
@@ -409,7 +472,7 @@ if __name__ == '__main__':
                 logger.info('Saved new best AUC checkpoint to {}'.format(best_auc_path))
                 if args.use_wandb and wandb_run is not None:
                     wandb_run.summary['best_val_roc_auc'] = best_AUC
-            if test_rocauc > args.th_auc*100:
+            if args.save_threshold_checkpoints and test_rocauc > args.th_auc * 100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.
                                         format(epoch, test_rocauc, test_prauc)))
@@ -420,7 +483,7 @@ if __name__ == '__main__':
                 logger.info('Saved new best PR checkpoint to {}'.format(best_pr_path))
                 if args.use_wandb and wandb_run is not None:
                     wandb_run.summary['best_val_pr_auc'] = best_PR
-            if test_prauc > args.th_pr*100:
+            if args.save_threshold_checkpoints and test_prauc > args.th_pr * 100:
                 torch.save(model.state_dict(),
                             os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.format(epoch, test_rocauc, test_prauc)))
 
@@ -429,6 +492,12 @@ if __name__ == '__main__':
 
     torch.save(model.state_dict(), last_epoch_path)
     logger.info('Saved last epoch checkpoint to {}'.format(last_epoch_path))
+
+    if pruning_handler is not None:
+        if pruning_handler.released:
+            logger.info('Final sparsity: {:.2f}% (masks released at epoch {}).'.format(pruning_handler.sparsity * 100, pruning_handler.release_epoch))
+        else:
+            logger.info('Final sparsity: {:.2f}% (pruning masks remained active).'.format(pruning_handler.sparsity * 100))
 
     if args.use_wandb and wandb_run is not None:
         wandb_run.summary['best_val_roc_auc'] = best_AUC
@@ -440,4 +509,6 @@ if __name__ == '__main__':
             wandb_run.summary['pruning/total_params'] = pruning_handler.total_params
             wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
             wandb_run.summary['pruning/sparsity'] = pruning_handler.sparsity
+            if pruning_handler.release_epoch is not None:
+                wandb_run.summary['pruning/release_epoch'] = pruning_handler.release_epoch
         wandb.finish()
