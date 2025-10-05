@@ -10,3 +10,4 @@ data/shanghaitech/training
 wandb
 logger
 ckpts
+SMS/

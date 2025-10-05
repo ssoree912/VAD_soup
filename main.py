@@ -11,6 +11,19 @@ from model import AD_Model, Memory_module
 from loss import Loss_bce
 from data.dataset_loader import CreateDataset
 
+def save_state_and_mask(model, path, pruning_handler=None):
+    torch.save(model.state_dict(), path)
+    mask_path = path + '.mask'
+    if pruning_handler is not None:
+        mask_dict = pruning_handler.export_masks()
+        if mask_dict:
+            torch.save(mask_dict, mask_path)
+        elif os.path.exists(mask_path):
+            os.remove(mask_path)
+    else:
+        if os.path.exists(mask_path):
+            os.remove(mask_path)
+
 def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_handler=None):
     with torch.set_grad_enabled(True):
         model.train()
@@ -241,7 +254,8 @@ class PruningHandler:
             mask_flat = global_mask[start:end].to(param.device, dtype=param.dtype)
             mask_tensor = mask_flat.view_as(param).clone()
             mask_tensor.requires_grad = False
-            original_pruned = (param.data * (1 - mask_tensor))
+            original_values = param.data.detach().clone()
+            original_pruned = original_values * (1 - mask_tensor)
             param.data.mul_(mask_tensor)
             self.entries.append({'name': name,
                                  'param': param,
@@ -296,6 +310,17 @@ class PruningHandler:
         if self.logger:
             msg_epoch = epoch if epoch is not None else 'N/A'
             self.logger.info('Pruning masks released at epoch {}. Model returned to full capacity.'.format(msg_epoch))
+
+    def export_masks(self):
+        if not self.entries or not self.active or self.released:
+            return None
+        mask_dict = {}
+        for entry in self.entries:
+            mask_dict[entry['name']] = entry['mask'].detach().cpu().to(torch.float32)
+        return mask_dict
+
+    def has_active_masks(self):
+        return bool(self.entries) and self.active and not self.released
 
 def parse_args():
     config_parser = argparse.ArgumentParser(add_help=False)
@@ -468,29 +493,29 @@ if __name__ == '__main__':
             if test_rocauc > best_AUC:
                 best_AUC = test_rocauc
                 best_epoch_AUC = epoch
-                torch.save(model.state_dict(), best_auc_path)
+                save_state_and_mask(model, best_auc_path, pruning_handler)
                 logger.info('Saved new best AUC checkpoint to {}'.format(best_auc_path))
                 if args.use_wandb and wandb_run is not None:
                     wandb_run.summary['best_val_roc_auc'] = best_AUC
             if args.save_threshold_checkpoints and test_rocauc > args.th_auc * 100:
-                torch.save(model.state_dict(),
-                            os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.
-                                        format(epoch, test_rocauc, test_prauc)))
+                threshold_path = os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.
+                                              format(epoch, test_rocauc, test_prauc))
+                save_state_and_mask(model, threshold_path, pruning_handler)
             if test_prauc > best_PR:
                 best_PR = test_prauc
                 best_epoch_PR = epoch
-                torch.save(model.state_dict(), best_pr_path)
+                save_state_and_mask(model, best_pr_path, pruning_handler)
                 logger.info('Saved new best PR checkpoint to {}'.format(best_pr_path))
                 if args.use_wandb and wandb_run is not None:
                     wandb_run.summary['best_val_pr_auc'] = best_PR
             if args.save_threshold_checkpoints and test_prauc > args.th_pr * 100:
-                torch.save(model.state_dict(),
-                            os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.format(epoch, test_rocauc, test_prauc)))
+                threshold_path = os.path.join(ckpt_path, 'epoch_{}_test_auc_{:.2f}_pr_{:.2f}.pkl'.format(epoch, test_rocauc, test_prauc))
+                save_state_and_mask(model, threshold_path, pruning_handler)
 
             logger.info('best_AUC {:.2f} at epoch {}.\t best_PR {:.2f} at epoch {}.'.format(best_AUC, best_epoch_AUC, best_PR, best_epoch_PR))
             logger.info('============================')
 
-    torch.save(model.state_dict(), last_epoch_path)
+    save_state_and_mask(model, last_epoch_path, pruning_handler)
     logger.info('Saved last epoch checkpoint to {}'.format(last_epoch_path))
 
     if pruning_handler is not None:

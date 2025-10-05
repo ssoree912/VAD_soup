@@ -65,6 +65,46 @@ def average_state_dicts(state_dicts):
     return avg_state
 
 
+def load_checkpoint(path):
+    obj = torch.load(path, map_location='cpu')
+    if isinstance(obj, dict) and 'state_dict' in obj:
+        state_dict = obj['state_dict']
+        masks = obj.get('masks')
+    else:
+        state_dict = obj
+        masks = None
+
+    mask_path = path + '.mask'
+    if os.path.exists(mask_path):
+        masks = torch.load(mask_path, map_location='cpu')
+
+    return state_dict, masks
+
+
+def union_masks(mask_list):
+    if not mask_list:
+        return None
+
+    union = {}
+    for mask in mask_list:
+        if not mask:
+            continue
+        for key, tensor in mask.items():
+            tensor_bool = tensor.bool()
+            if key not in union:
+                union[key] = tensor_bool
+            else:
+                union[key] = union[key] | tensor_bool
+
+    if not union:
+        return None
+
+    for key in union:
+        union[key] = union[key].to(torch.float32)
+
+    return union
+
+
 def build_model(args, state_dict, device):
     model = AD_Model(args.feature_dim, 512, args.dropout_rate)
     model.load_state_dict(state_dict)
@@ -105,10 +145,13 @@ def main():
 
     logger.info('Loading checkpoints: %s', ', '.join(cli_args.ckpts))
     state_dicts = []
+    masks = []
     for path in cli_args.ckpts:
         if not os.path.exists(path):
             raise FileNotFoundError('Checkpoint not found: {}'.format(path))
-        state_dicts.append(torch.load(path, map_location='cpu'))
+        state_dict, mask = load_checkpoint(path)
+        state_dicts.append(state_dict)
+        masks.append(mask)
 
     keys_reference = list(state_dicts[0].keys())
     for sd in state_dicts[1:]:
@@ -116,6 +159,14 @@ def main():
             raise ValueError('State dict keys do not match for checkpoint {}.'.format(cli_args.ckpts[state_dicts.index(sd)]))
 
     avg_state = average_state_dicts(state_dicts)
+
+    union_mask = union_masks(masks)
+    if union_mask is not None:
+        for key, mask_tensor in union_mask.items():
+            if key in avg_state:
+                avg_state[key] = avg_state[key] * mask_tensor.to(avg_state[key].dtype)
+        torch.save(union_mask, cli_args.output + '.mask')
+        logger.info('Saved union mask to %s.mask', cli_args.output)
 
     output_dir = os.path.dirname(cli_args.output)
     if output_dir:
