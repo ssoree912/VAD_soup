@@ -194,6 +194,7 @@ class PruningHandler:
         self.active = False
         self.released = False
         self.release_epoch = None
+        self.stored_mask = {}
         self._create_masks()
 
     def _gather_candidate_params(self):
@@ -267,6 +268,7 @@ class PruningHandler:
                                  'param': param,
                                  'mask': mask_tensor,
                                  'original_pruned': original_pruned})
+            self.stored_mask[name] = mask_tensor.detach().cpu().clone().to(torch.float32)
 
         if self.logger:
             self.logger.info('Applied pruning: magnitude {:.2f}%, random {:.2f}%, pruned {}/{} params ({:.2f}%).'.
@@ -318,15 +320,19 @@ class PruningHandler:
             self.logger.info('Pruning masks released at epoch {}. Model returned to full capacity.'.format(msg_epoch))
 
     def export_masks(self):
-        if not self.entries or not self.active or self.released:
-            return None
-        mask_dict = {}
-        for entry in self.entries:
-            mask_dict[entry['name']] = entry['mask'].detach().cpu().to(torch.float32)
-        return mask_dict
+        if self.entries and self.active and not self.released:
+            mask_dict = {}
+            for entry in self.entries:
+                mask_dict[entry['name']] = entry['mask'].detach().cpu().to(torch.float32)
+            return mask_dict
+        if self.stored_mask:
+            return {k: v.clone() for k, v in self.stored_mask.items()}
+        return None
 
     def has_active_masks(self):
-        return bool(self.entries) and self.active and not self.released
+        if self.entries and self.active and not self.released:
+            return True
+        return bool(self.stored_mask)
 
 def parse_args():
     config_parser = argparse.ArgumentParser(add_help=False)
