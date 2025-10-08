@@ -8,9 +8,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import shlex
 import yaml
 from sklearn.model_selection import KFold
 import torch
+
+ROOT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = ROOT_DIR.parent
+import sys
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.model_soup import average_state_dicts, load_checkpoint
 from utils import get_logger, set_seeds, calc_metrics
@@ -123,6 +130,14 @@ def main():
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU index for evaluation')
     args = parser.parse_args()
 
+    train_flags = []
+    for token in args.train_flags:
+        if isinstance(token, str) and ' ' in token:
+            train_flags.extend(shlex.split(token))
+        else:
+            train_flags.append(token)
+    args.train_flags = train_flags
+
     base_config_path = Path(args.config).resolve()
     base_cfg = load_config_dict(base_config_path)
     dataset_name = base_cfg['dataset']
@@ -164,11 +179,25 @@ def main():
 
         fold_ckpt_root = Path(fold_cfg['ckpt_path']).resolve() / dataset_name
         fold_ckpt_root.mkdir(parents=True, exist_ok=True)
-        ckpt_dir = run_training(fold_config_path, args.train_flags, fold_ckpt_root)
-        best_ckpt_path = ckpt_dir / 'best_auc.pkl'
+
+        existing_best = []
+        for ckpt_dir in fold_ckpt_root.glob('*'):
+            candidate_best = ckpt_dir / 'best_auc.pkl'
+            if candidate_best.exists():
+                existing_best.append(candidate_best)
+
+        if existing_best:
+            existing_best.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            best_ckpt_path = existing_best[0]
+            print(f'[Fold {fold_idx}] Reusing existing checkpoint: {best_ckpt_path.parent.name}')
+        else:
+            ckpt_dir = run_training(fold_config_path, args.train_flags, fold_ckpt_root)
+            best_ckpt_path = ckpt_dir / 'best_auc.pkl'
+            if not best_ckpt_path.exists():
+                raise FileNotFoundError(f'Expected checkpoint not found: {best_ckpt_path}')
+            print(f'[Fold {fold_idx}] Trained new checkpoint: {best_ckpt_path.parent.name}')
+
         mask_path = best_ckpt_path.with_suffix('.pkl.mask')
-        if not best_ckpt_path.exists():
-            raise FileNotFoundError(f'Expected checkpoint not found: {best_ckpt_path}')
 
         fold_infos.append({
             'fold_idx': fold_idx,
@@ -210,11 +239,11 @@ def main():
 
         records.append({
             'soup_path': str(soup_path),
-            'num_models': soup_size,
-            'avg_pr_auc': avg_pr,
-            'avg_roc_auc': avg_roc,
-            'min_pr_auc': min_pr,
-            'min_roc_auc': min_roc,
+            'num_models': int(soup_size),
+            'avg_pr_auc': float(avg_pr),
+            'avg_roc_auc': float(avg_roc),
+            'min_pr_auc': float(min_pr),
+            'min_roc_auc': float(min_roc),
         })
 
     results_path = soup_dir / 'kfold_soup_results.yaml'

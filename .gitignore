@@ -9,4 +9,6 @@ data/shanghaitech/info_sh.txt
 data/shanghaitech/training
 wandb
 logger
-ckpts
+ckpts/
+kfold_runs/
+reports/
