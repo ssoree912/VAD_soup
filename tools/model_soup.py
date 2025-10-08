@@ -81,28 +81,18 @@ def load_checkpoint(path):
     return state_dict, masks
 
 
-def union_masks(mask_list):
-    if not mask_list:
-        return None
-
-    union = {}
-    for mask in mask_list:
-        if not mask:
-            continue
-        for key, tensor in mask.items():
-            tensor_bool = tensor.bool()
-            if key not in union:
-                union[key] = tensor_bool
-            else:
-                union[key] = union[key] | tensor_bool
-
-    if not union:
-        return None
-
-    for key in union:
-        union[key] = union[key].to(torch.float32)
-
-    return union
+def select_reference_mask(mask_list, checkpoint_paths, logger):
+    selected_mask = None
+    selected_path = None
+    for path, mask in zip(checkpoint_paths, mask_list):
+        if mask:
+            selected_mask = mask
+            selected_path = path
+    if selected_mask is not None:
+        logger.info('Using sparse mask from checkpoint: %s', selected_path)
+    else:
+        logger.info('No sparse masks found. Resulting soup will be dense.')
+    return selected_mask
 
 
 def build_model(args, state_dict, device):
@@ -160,19 +150,25 @@ def main():
 
     avg_state = average_state_dicts(state_dicts)
 
-    union_mask = union_masks(masks)
-    if union_mask is not None:
-        for key, mask_tensor in union_mask.items():
+    reference_mask = select_reference_mask(masks, cli_args.ckpts, logger)
+    if reference_mask is not None:
+        for key, mask_tensor in reference_mask.items():
             if key in avg_state:
                 avg_state[key] = avg_state[key] * mask_tensor.to(avg_state[key].dtype)
-        torch.save(union_mask, cli_args.output + '.mask')
-        logger.info('Saved union mask to %s.mask', cli_args.output)
 
     output_dir = os.path.dirname(cli_args.output)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     torch.save(avg_state, cli_args.output)
     logger.info('Saved averaged checkpoint to %s', cli_args.output)
+
+    mask_output_path = cli_args.output + '.mask'
+    if reference_mask is not None:
+        torch.save(reference_mask, mask_output_path)
+        logger.info('Saved reference mask to %s', mask_output_path)
+    elif os.path.exists(mask_output_path):
+        os.remove(mask_output_path)
+        logger.info('Removed existing mask file %s', mask_output_path)
 
     if not cli_args.evaluate:
         return

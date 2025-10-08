@@ -182,7 +182,7 @@ def compute_weight_statistics(model):
 
 
 class PruningHandler:
-    def __init__(self, model, magnitude_ratio, random_ratio, logger=None):
+    def __init__(self, model, magnitude_ratio, random_ratio, logger=None, random_seed=None):
         self.model = model
         self.magnitude_ratio = max(0.0, float(magnitude_ratio)) if magnitude_ratio is not None else 0.0
         self.random_ratio = max(0.0, float(random_ratio)) if random_ratio is not None else 0.0
@@ -190,6 +190,7 @@ class PruningHandler:
         self.entries = []
         self.total_params = 0
         self.pruned_params = 0
+        self.random_seed = random_seed
         self.active = False
         self.released = False
         self.release_epoch = None
@@ -244,7 +245,12 @@ class PruningHandler:
         k_rand = int(total * self.random_ratio)
         if k_rand > 0 and remaining.numel() > 0:
             k_rand = min(k_rand, remaining.numel())
-            perm = torch.randperm(remaining.numel())[:k_rand]
+            if self.random_seed is not None:
+                generator = torch.Generator(device=remaining.device)
+                generator.manual_seed(int(self.random_seed))
+                perm = torch.randperm(remaining.numel(), generator=generator)[:k_rand]
+            else:
+                perm = torch.randperm(remaining.numel())[:k_rand]
             rand_idx = remaining[perm]
             global_mask[rand_idx] = False
 
@@ -343,6 +349,7 @@ def parse_args():
     parser.set_defaults(use_pruning=False)
     parser.add_argument('--prune_magnitude_ratio', type=float, default=None, help='Fraction of parameters to prune by magnitude')
     parser.add_argument('--prune_random_ratio', type=float, default=None, help='Fraction of parameters to prune randomly in addition')
+    parser.add_argument('--prune_random_seed', type=int, default=None, help='Seed to use for random pruning only')
     parser.add_argument('--use_early_unprune', dest='use_early_unprune', action='store_true', help='Release pruning masks after a portion of training')
     parser.add_argument('--no_early_unprune', dest='use_early_unprune', action='store_false', help='Keep pruning masks active through entire training')
     parser.set_defaults(use_early_unprune=False)
@@ -406,7 +413,8 @@ if __name__ == '__main__':
 
     pruning_handler = None
     if args.use_pruning:
-        pruning_handler = PruningHandler(model, args.prune_magnitude_ratio, args.prune_random_ratio, logger)
+        pruning_handler = PruningHandler(model, args.prune_magnitude_ratio, args.prune_random_ratio, logger,
+                                         random_seed=getattr(args, 'prune_random_seed', None))
         if args.use_wandb and wandb_run is not None and pruning_handler.total_params:
             wandb_run.summary['pruning/total_params'] = pruning_handler.total_params
             wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
