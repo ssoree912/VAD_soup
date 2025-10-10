@@ -41,6 +41,7 @@ import copy
 import os
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -95,7 +96,9 @@ def evaluate_checkpoint(checkpoint_path: Path, cfg: Dict[str, Any], device: torc
     set_seeds(args.seed)
     args.device = 'cuda' if device.type == 'cuda' else 'cpu'
     args.gpu_id = device.index if device.type == 'cuda' and device.index is not None else 0
-    logger = get_logger(str(Path(cfg['logger_path']) / cfg['dataset'] / 'batch_eval.txt'))
+    log_dir = Path(cfg['logger_path']) / 'batch_eval' / cfg['dataset']
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logger = get_logger(str(log_dir / 'batch_eval.txt'))
     test_loader, _, _, _ = CreateDataset(args, logger)
 
     model = AD_Model(args.feature_dim, 512, args.dropout_rate)
