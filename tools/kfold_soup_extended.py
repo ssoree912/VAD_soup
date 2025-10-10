@@ -57,14 +57,12 @@ python3 kfold_model_soup_extended.py \
 import argparse
 import copy
 import itertools
-import tempfile
 import logging
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import shlex
 import yaml
@@ -209,16 +207,41 @@ def evaluate_checkpoint(checkpoint_path: Path, args_dict: Dict[str, Any], split_
 
 def soup_state_dict(paths: List[Path]) -> Dict[str, torch.Tensor]:
     """Average the state dictionaries of multiple checkpoints."""
-    state_dicts = [load_checkpoint(str(p))[0] for p in paths]
-    return average_state_dicts(state_dicts)
+    return average_state_and_mask(paths)[0]
 
 
-def save_soup_state(state: Dict[str, torch.Tensor], reference_mask: Path, output_path: Path) -> None:
-    """Save the averaged state and (optionally) a reference mask to disk."""
+def apply_mask_to_state(state: Dict[str, torch.Tensor], mask: Dict[str, torch.Tensor]) -> None:
+    """Apply a pruning mask to the provided state dictionary."""
+    for key, tensor in mask.items():
+        if key in state:
+            state[key] = state[key] * tensor.to(state[key].dtype)
+
+
+def save_state_and_mask(state: Dict[str, torch.Tensor], mask: Optional[Dict[str, torch.Tensor]],
+                        output_path: Path) -> None:
+    """Save a soup state_dict and its mask (if present) to disk."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(state, output_path)
-    if reference_mask and reference_mask.exists():
-        shutil.copy2(reference_mask, output_path.with_suffix(output_path.suffix + '.mask'))
+    mask_path = output_path.with_suffix(output_path.suffix + '.mask')
+    if mask is not None:
+        torch.save(mask, mask_path)
+    elif mask_path.exists():
+        mask_path.unlink()
+
+
+def average_state_and_mask(ckpt_paths: Iterable[Path]) -> Tuple[Dict[str, torch.Tensor], Optional[Dict[str, torch.Tensor]]]:
+    """Average checkpoints and reuse an available pruning mask."""
+    state_dicts: List[Dict[str, torch.Tensor]] = []
+    reference_mask: Optional[Dict[str, torch.Tensor]] = None
+    for path in ckpt_paths:
+        state, mask = load_checkpoint(str(path))
+        state_dicts.append(state)
+        if mask is not None:
+            reference_mask = mask
+    avg_state = average_state_dicts(state_dicts)
+    if reference_mask is not None:
+        apply_mask_to_state(avg_state, reference_mask)
+    return avg_state, reference_mask
 
 
 def population_stability_index(expected: np.ndarray, actual: np.ndarray, bins: int = 20, eps: float = 1e-6) -> float:
@@ -477,16 +500,12 @@ def synthesize_uniform_soups(fold_infos: List[Dict[str, Any]], min_size: int, ma
         for combo_indices in itertools.combinations(range(num_models_total), n):
             selected_infos = [fold_infos[i] for i in combo_indices]
             ckpt_paths = [info['ckpt'] for info in selected_infos]
-            masks = [info['mask'] for info in selected_infos if info['mask'] is not None]
-            reference_mask = masks[-1] if masks else None
-            avg_state = average_state_dicts([load_checkpoint(str(p))[0] for p in ckpt_paths])
+            avg_state, reference_mask = average_state_and_mask(ckpt_paths)
             # Save soup checkpoint (unique name based on combination indices)
-            combo_name = '_'.join(str(idx + 1) for idx in combo_indices)
+            combo_fold_indices = [info['fold_idx'] for info in selected_infos]
+            combo_name = '_'.join(str(idx) for idx in combo_fold_indices)
             soup_path = output_dir / f'soup_{n}of{num_models_total}_{combo_name}.pkl'
-            soup_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(avg_state, soup_path)
-            if reference_mask is not None:
-                shutil.copy2(reference_mask, soup_path.with_suffix('.pkl.mask'))
+            save_state_and_mask(avg_state, reference_mask, soup_path)
             # Evaluate on each selected fold's validation split
             pr_list = []
             roc_list = []
@@ -494,6 +513,14 @@ def synthesize_uniform_soups(fold_infos: List[Dict[str, Any]], min_size: int, ma
                 pr, roc = evaluate_checkpoint(soup_path, info['config'], info['val_split'], device)
                 pr_list.append(pr)
                 roc_list.append(roc)
+            per_fold_metrics = [
+                {
+                    'fold_index': info['fold_idx'],
+                    'pr_auc': float(pr),
+                    'roc_auc': float(roc),
+                }
+                for info, pr, roc in zip(selected_infos, pr_list, roc_list)
+            ]
             avg_pr = sum(pr_list) / len(pr_list)
             avg_roc = sum(roc_list) / len(roc_list)
             min_pr = min(pr_list)
@@ -510,11 +537,12 @@ def synthesize_uniform_soups(fold_infos: List[Dict[str, Any]], min_size: int, ma
             results.append({
                 'soup_path': str(soup_path),
                 'num_models': n,
-                'combo_indices': [idx + 1 for idx in combo_indices],
+                'combo_indices': combo_fold_indices,
                 'avg_pr_auc': float(avg_pr),
                 'avg_roc_auc': float(avg_roc),
                 'min_pr_auc': float(min_pr),
                 'min_roc_auc': float(min_roc),
+                'per_fold_metrics': per_fold_metrics,
                 'test_pr_auc': float(test_pr) if test_pr is not None else None,
                 'test_roc_auc': float(test_roc) if test_roc is not None else None,
             })
@@ -525,13 +553,13 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
                           device: torch.device,
                           test_split: Path | None = None,
                           base_config: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """Build a greedy soup across folds based on minimum validation performance.
+    """Build a greedy soup across folds based on average validation performance.
 
     This function implements a greedy soup construction similar to
     Algorithm 1 in the model soup literature【392160604737602†L821-L847】.  It
-    starts with the single model that achieves the best minimum validation
-    metric and iteratively adds models if doing so improves the minimum
-    performance across the selected validation splits.  The greedy soup is
+    starts with the single model that achieves the best validation metric and
+    iteratively adds models if doing so improves the average validation
+    performance across the selected folds.  The greedy soup is
     saved to disk and its validation metrics are returned.
 
     Args:
@@ -546,9 +574,10 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
     """
     # Number of candidate models
     num_models = len(fold_infos)
-    # Keep track of selected fold indices and best minimum metric (ROC AUC)
+    # Keep track of selected fold indices and best average metrics
     selected_indices: List[int] = []
-    best_min_metric = 0.0
+    best_avg_roc = float('-inf')
+    best_avg_pr = float('-inf')
     # Compute individual validation metrics (PR AUC, ROC AUC) for each fold model
     individual_metrics: List[Tuple[float, float]] = []
     for idx, info in enumerate(fold_infos):
@@ -556,18 +585,19 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
         individual_metrics.append((pr, roc))
     # Sort candidate indices by descending ROC AUC (you may choose PR AUC instead)
     sorted_indices = sorted(range(num_models), key=lambda i: individual_metrics[i][1], reverse=True)
-    soup_state: Dict[str, torch.Tensor] = None
-    # Greedy selection: iteratively add models if they improve the minimum ROC AUC across selected validation splits
+    soup_state: Optional[Dict[str, torch.Tensor]] = None
+    soup_mask: Optional[Dict[str, torch.Tensor]] = None
+    # Greedy selection: iteratively add models if they improve average ROC AUC (tie-breaker: average PR AUC)
     for idx in sorted_indices:
         candidate_indices = selected_indices + [idx]
         candidate_infos = [fold_infos[i] for i in candidate_indices]
         # Average checkpoint states of candidate models
         ckpt_paths = [info['ckpt'] for info in candidate_infos]
-        avg_state = average_state_dicts([load_checkpoint(str(p))[0] for p in ckpt_paths])
+        avg_state, reference_mask = average_state_and_mask(ckpt_paths)
         # Save temporary soup state for evaluation
         with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as temp_file:
             temp_path = Path(temp_file.name)
-        torch.save(avg_state, temp_path)
+        save_state_and_mask(avg_state, reference_mask, temp_path)
         # Evaluate candidate soup on validation splits of candidate models
         pr_list: List[float] = []
         roc_list: List[float] = []
@@ -578,47 +608,69 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
         # Remove temporary file
         try:
             temp_path.unlink()
+            mask_path = temp_path.with_suffix(temp_path.suffix + '.mask')
+            if mask_path.exists():
+                mask_path.unlink()
         except Exception:
             pass
-        candidate_min_roc = min(roc_list)
-        # Accept candidate if it improves the minimum ROC AUC
-        if candidate_min_roc > best_min_metric:
-            best_min_metric = candidate_min_roc
+        candidate_avg_pr = sum(pr_list) / len(pr_list)
+        candidate_avg_roc = sum(roc_list) / len(roc_list)
+        # Accept candidate if it improves the average ROC AUC (tie-breaker: average PR AUC)
+        if (candidate_avg_roc > best_avg_roc) or (
+            candidate_avg_roc == best_avg_roc and candidate_avg_pr > best_avg_pr
+        ):
+            best_avg_roc = candidate_avg_roc
+            best_avg_pr = candidate_avg_pr
             selected_indices = candidate_indices
             soup_state = avg_state
+            soup_mask = reference_mask
     # If no model was selected, fall back to the best individual
     if not selected_indices:
         best_idx = sorted_indices[0]
         return {
             'soup_path': str(fold_infos[best_idx]['ckpt']),
-            'selected_folds': [best_idx + 1],
+            'selected_folds': [fold_infos[best_idx]['fold_idx']],
             'avg_pr_auc': individual_metrics[best_idx][0],
             'avg_roc_auc': individual_metrics[best_idx][1],
             'min_pr_auc': individual_metrics[best_idx][0],
             'min_roc_auc': individual_metrics[best_idx][1],
+            'per_fold_metrics': [
+                {
+                    'fold_index': fold_infos[best_idx]['fold_idx'],
+                    'pr_auc': float(individual_metrics[best_idx][0]),
+                    'roc_auc': float(individual_metrics[best_idx][1]),
+                }
+            ],
         }
     # Save final greedy soup state
     soup_path = output_dir / 'greedy_soup.pkl'
-    torch.save(soup_state, soup_path)
+    save_state_and_mask(soup_state, soup_mask, soup_path)
     # Evaluate final greedy soup on selected validation splits
     pr_list: List[float] = []
     roc_list: List[float] = []
+    per_fold_metrics = []
     for idx in selected_indices:
         info = fold_infos[idx]
         pr, roc = evaluate_checkpoint(soup_path, info['config'], info['val_split'], device)
         pr_list.append(pr)
         roc_list.append(roc)
+        per_fold_metrics.append({
+            'fold_index': info['fold_idx'],
+            'pr_auc': float(pr),
+            'roc_auc': float(roc),
+        })
     avg_pr = sum(pr_list) / len(pr_list)
     avg_roc = sum(roc_list) / len(roc_list)
     min_pr = min(pr_list)
     min_roc = min(roc_list)
     result = {
         'soup_path': str(soup_path),
-        'selected_folds': [idx + 1 for idx in selected_indices],
+        'selected_folds': [fold_infos[idx]['fold_idx'] for idx in selected_indices],
         'avg_pr_auc': float(avg_pr),
         'avg_roc_auc': float(avg_roc),
         'min_pr_auc': float(min_pr),
         'min_roc_auc': float(min_roc),
+        'per_fold_metrics': per_fold_metrics,
     }
     if test_split is not None and base_config is not None:
         test_pr, test_roc = evaluate_checkpoint(soup_path, base_config, test_split, device)

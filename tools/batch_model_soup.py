@@ -216,7 +216,7 @@ def construct_greedy_soup(ckpt_paths: List[Path], eval_cfg: Dict[str, Any], devi
 def main():
     parser = argparse.ArgumentParser(description='Batch train models and build soups.')
     parser.add_argument('--config', required=True, help='Base YAML config path')
-    parser.add_argument('--seeds', nargs='+', type=int, required=True, help='List of seeds for training runs')
+    parser.add_argument('--seeds', nargs='+', type=int, help='List of seeds for training runs')
     parser.add_argument('--prune_random_seeds', nargs='*', type=int, help='Optional list of pruning random seeds')
     parser.add_argument('--train_flags', nargs='*', default=[], help='Extra flags passed to main.py during training')
     parser.add_argument('--device', default='cuda', help='Device string passed to main.py (default: cuda)')
@@ -225,24 +225,41 @@ def main():
     parser.add_argument('--greedy_output', type=str, help='Path to save greedy soup checkpoint')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate individual and soup models on testing split')
     parser.add_argument('--results_yaml', type=str, help='Optional path to write summary YAML (default derived from output)')
+    parser.add_argument('--checkpoint_paths', nargs='+', help='Existing checkpoint files to include in soups (skip training)')
     args = parser.parse_args()
+
+    if not args.checkpoint_paths and not args.seeds:
+        parser.error('Provide --seeds to trigger training runs or --checkpoint_paths to reuse existing models.')
 
     train_flags = parse_train_flags(args.train_flags)
 
     config_path = Path(args.config).resolve()
     base_cfg = load_config(config_path)
     dataset = base_cfg['dataset']
+    train_split_path = Path(base_cfg['training_split']).resolve()
     ckpt_root = Path(base_cfg['ckpt_path']).resolve() / dataset
     ckpt_root.mkdir(parents=True, exist_ok=True)
 
-    combinations: List[Tuple[int, Optional[int]]] = []
-    prune_list = args.prune_random_seeds if args.prune_random_seeds else [None]
-    for seed in args.seeds:
-        for prune_seed in prune_list:
-            combinations.append((seed, prune_seed))
-
     checkpoint_paths: List[Path] = []
     run_records: List[Dict[str, Any]] = []
+
+    if args.checkpoint_paths:
+        for path_str in args.checkpoint_paths:
+            candidate = Path(path_str).expanduser().resolve()
+            if not candidate.exists():
+                raise FileNotFoundError(f'Checkpoint not found: {candidate}')
+            checkpoint_paths.append(candidate)
+            run_records.append({
+                'checkpoint': str(candidate),
+                'source': 'provided',
+            })
+
+    combinations: List[Tuple[int, Optional[int]]] = []
+    if args.seeds:
+        prune_list = args.prune_random_seeds if args.prune_random_seeds else [None]
+        for seed in args.seeds:
+            for prune_seed in prune_list:
+                combinations.append((seed, prune_seed))
 
     for seed, prune_seed in combinations:
         extra_flags = train_flags.copy()
@@ -270,16 +287,30 @@ def main():
 
     device = torch.device(f'cuda:{args.gpu_id}' if args.device == 'cuda' and torch.cuda.is_available() else 'cpu')
 
+    if not checkpoint_paths:
+        raise RuntimeError('No checkpoints available for soup construction.')
+
     test_cfg = None
+    val_cfg = None
     if args.evaluate:
         test_cfg = copy.deepcopy(base_cfg)
         test_cfg['logger_path'] = str(Path(test_cfg['logger_path']) / 'batch_eval')
+        val_cfg = copy.deepcopy(base_cfg)
+        val_cfg['logger_path'] = str(Path(val_cfg['logger_path']) / 'batch_eval_val')
+        val_cfg['testing_split'] = str(train_split_path)
 
     individual_metrics = []
     if args.evaluate:
         for path in checkpoint_paths:
-            pr, roc = evaluate_checkpoint(path, test_cfg, device)
-            individual_metrics.append({'checkpoint': str(path), 'pr_auc': pr, 'roc_auc': roc})
+            test_pr, test_roc = evaluate_checkpoint(path, test_cfg, device)
+            val_pr, val_roc = evaluate_checkpoint(path, val_cfg, device)
+            individual_metrics.append({
+                'checkpoint': str(path),
+                'val_pr_auc': val_pr,
+                'val_roc_auc': val_roc,
+                'test_pr_auc': test_pr,
+                'test_roc_auc': test_roc,
+            })
 
     results: Dict[str, Any] = {
         'config': str(config_path),
@@ -291,8 +322,14 @@ def main():
         uniform_state = build_uniform_soup(checkpoint_paths, uniform_path)
         soup_metrics = None
         if args.evaluate and test_cfg is not None:
-            pr, roc = evaluate_checkpoint(uniform_path, test_cfg, device)
-            soup_metrics = {'pr_auc': pr, 'roc_auc': roc}
+            val_pr, val_roc = evaluate_checkpoint(uniform_path, val_cfg, device)
+            test_pr, test_roc = evaluate_checkpoint(uniform_path, test_cfg, device)
+            soup_metrics = {
+                'val_pr_auc': val_pr,
+                'val_roc_auc': val_roc,
+                'test_pr_auc': test_pr,
+                'test_roc_auc': test_roc,
+            }
         results['uniform_soup'] = {
             'checkpoint': str(uniform_path),
             'metrics': soup_metrics,
@@ -300,16 +337,23 @@ def main():
 
     if args.greedy_output:
         greedy_path = Path(args.greedy_output).resolve()
+        greedy_eval_cfg = val_cfg if val_cfg is not None else base_cfg
         state, selected, avg_pr, avg_roc, min_pr, min_roc = construct_greedy_soup(
             checkpoint_paths,
-            test_cfg if test_cfg is not None else base_cfg,
+            greedy_eval_cfg,
             device,
             greedy_path
         )
         greedy_metrics = None
         if args.evaluate and test_cfg is not None:
-            pr, roc = evaluate_checkpoint(greedy_path, test_cfg, device)
-            greedy_metrics = {'pr_auc': pr, 'roc_auc': roc}
+            val_pr, val_roc = evaluate_checkpoint(greedy_path, val_cfg, device)
+            test_pr, test_roc = evaluate_checkpoint(greedy_path, test_cfg, device)
+            greedy_metrics = {
+                'val_pr_auc': val_pr,
+                'val_roc_auc': val_roc,
+                'test_pr_auc': test_pr,
+                'test_roc_auc': test_roc,
+            }
         results['greedy_soup'] = {
             'checkpoint': str(greedy_path),
             'selected_indices': selected,
