@@ -70,6 +70,11 @@ import shlex
 import yaml
 from sklearn.model_selection import KFold
 import torch
+import numpy as np
+from scipy.stats import entropy, wasserstein_distance
+from scipy.spatial.distance import jensenshannon
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 ROOT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = ROOT_DIR.parent
@@ -214,6 +219,179 @@ def save_soup_state(state: Dict[str, torch.Tensor], reference_mask: Path, output
     torch.save(state, output_path)
     if reference_mask and reference_mask.exists():
         shutil.copy2(reference_mask, output_path.with_suffix(output_path.suffix + '.mask'))
+
+
+def population_stability_index(expected: np.ndarray, actual: np.ndarray, bins: int = 20, eps: float = 1e-6) -> float:
+    hist_exp, bin_edges = np.histogram(expected, bins=bins)
+    hist_act, _ = np.histogram(actual, bins=bin_edges)
+    perc_exp = hist_exp / max(hist_exp.sum(), eps)
+    perc_act = hist_act / max(hist_act.sum(), eps)
+    perc_exp = np.clip(perc_exp, eps, None)
+    perc_act = np.clip(perc_act, eps, None)
+    psi = np.sum((perc_act - perc_exp) * np.log(perc_act / perc_exp))
+    return float(psi)
+
+
+def compute_distribution_metrics(train_values: np.ndarray, val_values: np.ndarray, bins: int = 20) -> Dict[str, float]:
+    eps = 1e-6
+    psi = population_stability_index(train_values, val_values, bins=bins, eps=eps)
+    hist_train, edges = np.histogram(train_values, bins=bins)
+    hist_val, _ = np.histogram(val_values, bins=edges)
+    p_train = hist_train / max(hist_train.sum(), eps)
+    p_val = hist_val / max(hist_val.sum(), eps)
+    p_train = np.clip(p_train, eps, None)
+    p_val = np.clip(p_val, eps, None)
+    kl = float(entropy(p_train, p_val))
+    js = float(jensenshannon(p_train, p_val) ** 2)
+    wd = float(wasserstein_distance(train_values, val_values))
+    return {
+        'psi': psi,
+        'kl_divergence': kl,
+        'js_divergence': js,
+        'wasserstein_distance': wd,
+    }
+
+
+def sample_rows(array: np.ndarray, max_samples: int, rng: np.random.Generator) -> np.ndarray:
+    if array.shape[0] <= max_samples:
+        return array
+    indices = rng.choice(array.shape[0], size=max_samples, replace=False)
+    return array[indices]
+
+
+def plot_histograms(train_values: np.ndarray, val_values: np.ndarray, path: Path) -> None:
+    plt.figure(figsize=(8, 4))
+    plt.hist(train_values, bins=40, alpha=0.6, label='train', density=True)
+    plt.hist(val_values, bins=40, alpha=0.6, label='validation', density=True)
+    plt.xlabel('Feature norm')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(path)
+    plt.close()
+
+
+def plot_pca(train_features: np.ndarray, val_features: np.ndarray, path: Path, sample_size: int,
+             rng: np.random.Generator) -> None:
+    if train_features.shape[0] == 0 or val_features.shape[0] == 0:
+        return
+    train_sample = sample_rows(train_features, sample_size, rng)
+    val_sample = sample_rows(val_features, sample_size, rng)
+    combined = np.vstack([train_sample, val_sample])
+    if combined.shape[0] < 2:
+        return
+    pca = PCA(n_components=2)
+    pca.fit(combined)
+    train_proj = pca.transform(train_sample)
+    val_proj = pca.transform(val_sample)
+    plt.figure(figsize=(6, 5))
+    plt.scatter(train_proj[:, 0], train_proj[:, 1], s=8, alpha=0.5, label='train')
+    plt.scatter(val_proj[:, 0], val_proj[:, 1], s=8, alpha=0.5, label='validation')
+    plt.xlabel('PC1')
+    plt.ylabel('PC2')
+    plt.legend()
+    plt.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(path)
+    plt.close()
+
+
+def gather_dataset_arrays(dataset) -> Dict[str, np.ndarray]:
+    features = []
+    pseudo_labels = []
+    reweights = []
+    for info in dataset.video_info_dict.values():
+        feat = info.get('feature')
+        if isinstance(feat, np.ndarray):
+            arr = feat
+            if arr.ndim > 2:
+                arr = arr.reshape(-1, arr.shape[-1])
+            elif arr.ndim == 1:
+                arr = arr.reshape(-1, 1)
+            features.append(arr.astype(np.float32))
+        pseudo = info.get('pseudo_label')
+        if isinstance(pseudo, np.ndarray):
+            pseudo_labels.append(pseudo.reshape(-1))
+        reweight = info.get('reweight')
+        if isinstance(reweight, np.ndarray):
+            reweights.append(reweight.reshape(-1))
+    features_arr = np.vstack(features) if features else np.empty((0, 0))
+    pseudo_arr = np.concatenate(pseudo_labels) if pseudo_labels else np.empty((0,))
+    reweight_arr = np.concatenate(reweights) if reweights else np.empty((0,))
+    return {
+        'features': features_arr,
+        'pseudo_labels': pseudo_arr,
+        'reweights': reweight_arr,
+    }
+
+
+def gather_validation_labels(dataset) -> np.ndarray:
+    labels = []
+    for info in dataset.video_info_dict.values():
+        label = info.get('label_test')
+        if isinstance(label, np.ndarray):
+            labels.append(label.reshape(-1))
+    if labels:
+        return np.concatenate(labels)
+    return np.empty((0,))
+
+
+def analyze_fold_data(fold_cfg: Dict[str, Any], device: torch.device, output_dir: Path,
+                      max_samples: int, seed_offset: int = 0) -> Dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    args = argparse.Namespace(**copy.deepcopy(fold_cfg))
+    args.device = 'cuda' if device.type == 'cuda' else 'cpu'
+    args.gpu_id = device.index if device.type == 'cuda' and device.index is not None else 0
+    set_seeds(args.seed + seed_offset)
+    logger = get_logger(str(output_dir / 'analysis.log'))
+    test_loader, train_loader, _, _ = CreateDataset(args, logger)
+    train_dataset = train_loader.dataset
+    val_dataset = test_loader.dataset
+
+    rng = np.random.default_rng(args.seed + seed_offset)
+
+    train_arrays = gather_dataset_arrays(train_dataset)
+    val_arrays = gather_dataset_arrays(val_dataset)
+
+    train_features = train_arrays['features']
+    val_features = val_arrays['features']
+
+    train_norms = np.linalg.norm(train_features, axis=1) if train_features.size else np.empty((0,))
+    val_norms = np.linalg.norm(val_features, axis=1) if val_features.size else np.empty((0,))
+
+    metrics: Dict[str, Any] = {}
+    if train_norms.size and val_norms.size:
+        dist_metrics = compute_distribution_metrics(train_norms, val_norms)
+        metrics.update({f'norm_{k}': v for k, v in dist_metrics.items()})
+        metrics['train_norm_mean'] = float(train_norms.mean())
+        metrics['val_norm_mean'] = float(val_norms.mean())
+        hist_path = output_dir / 'feature_norm_hist.png'
+        plot_histograms(train_norms, val_norms, hist_path)
+        metrics['histogram_path'] = str(hist_path)
+        if train_features.shape[1] >= 2:
+            pca_path = output_dir / 'pca_projection.png'
+            plot_pca(train_features, val_features, pca_path, max_samples, rng)
+            metrics['pca_path'] = str(pca_path)
+
+    train_pseudo = train_arrays['pseudo_labels']
+    if train_pseudo.size:
+        metrics['train_anomaly_ratio'] = float(train_pseudo.mean())
+        metrics['train_pseudo_std'] = float(train_pseudo.std())
+
+    train_reweight = train_arrays['reweights']
+    if train_reweight.size:
+        metrics['train_reweight_mean'] = float(train_reweight.mean())
+        metrics['train_reweight_std'] = float(train_reweight.std())
+
+    val_labels = gather_validation_labels(val_dataset)
+    if val_labels.size:
+        metrics['val_anomaly_ratio'] = float(val_labels.mean())
+
+    metrics['train_feature_count'] = int(train_features.shape[0])
+    metrics['val_feature_count'] = int(val_features.shape[0])
+
+    return metrics
 
 
 def build_fold_configs(base_cfg: Dict[str, Any], training_lines: List[str], k: int, seed: int,
@@ -463,6 +641,9 @@ def main():
     parser.add_argument('--greedy', action='store_true', help='Enable greedy soup construction')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU index for evaluation')
     parser.add_argument('--test_split', type=str, default=None, help='Optional test split file to evaluate soups on')
+    parser.add_argument('--analyze_folds', action='store_true', help='Compute per-fold data distribution diagnostics')
+    parser.add_argument('--analysis_dir', type=str, default=None, help='Directory to save fold analysis artifacts (plots, metrics)')
+    parser.add_argument('--analysis_max_samples', type=int, default=5000, help='Maximum samples per split used for analysis/visualization')
     args = parser.parse_args()
 
     # Flatten train_flags if nested quoting used
@@ -494,7 +675,10 @@ def main():
     device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
 
     all_results: List[Dict[str, Any]] = []
+    analysis_results: List[Dict[str, Any]] = []
     test_split_path = Path(args.test_split).resolve() if args.test_split else None
+
+    analysis_root = Path(args.analysis_dir).resolve() if args.analysis_dir else Path(args.soup_output).resolve() / 'analysis'
 
     for hp_index, cfg_path in enumerate(config_paths):
         # Load hyperparameter-specific config (if different from base)
@@ -533,6 +717,22 @@ def main():
                 'val_split': val_file,
                 'config': fold_cfg,
             })
+            if args.analyze_folds:
+                fold_analysis_dir = analysis_root / f'hp_{hp_index:02d}' / f'fold_{fold_idx:02d}'
+                analysis_metrics = analyze_fold_data(
+                    fold_cfg,
+                    device,
+                    fold_analysis_dir,
+                    args.analysis_max_samples,
+                    seed_offset=fold_idx
+                )
+                analysis_entry = {
+                    'hyperparam_index': hp_index,
+                    'fold_idx': fold_idx,
+                    'metrics': analysis_metrics,
+                }
+                fold_infos[-1]['analysis'] = analysis_metrics
+                analysis_results.append(analysis_entry)
         # Directory to save soups for this hyperparameter
         hp_soup_dir = Path(args.soup_output).resolve() / f'hp_{hp_index:02d}'
         hp_soup_dir.mkdir(parents=True, exist_ok=True)
@@ -570,6 +770,11 @@ def main():
     results_path = soup_dir / 'kfold_soup_extended_results.yaml'
     with open(results_path, 'w') as handle:
         yaml.safe_dump(all_results, handle, sort_keys=False)
+    if args.analyze_folds:
+        analysis_path = soup_dir / 'kfold_fold_analysis.yaml'
+        with open(analysis_path, 'w') as handle:
+            yaml.safe_dump(analysis_results, handle, sort_keys=False)
+        print(f'Fold analysis written to {analysis_path}')
     print(f'Extended k-fold soup results written to {results_path}')
 
 
