@@ -187,7 +187,26 @@ def main():
             logger.warning('CUDA requested but not available. Falling back to CPU.')
 
     model = build_model(args, avg_state, device)
-    evaluate(model, args, device, logger)
+    val_results = evaluate(model, args, device, logger)
+
+    results = {
+        'soup_path': cli_args.output,
+        'val_pr_auc': float(val_results[0]),
+        'val_roc_auc': float(val_results[1]),
+    }
+
+    results_path = os.path.splitext(cli_args.output)[0] + '_results.yaml'
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+
+    if yaml:
+        with open(results_path, 'w') as handle:
+            yaml.safe_dump(results, handle, sort_keys=False)
+        logger.info('Saved evaluation metrics to %s', results_path)
+    else:
+        logger.warning('PyYAML not available; skipping YAML save of evaluation metrics.')
 
 
 if __name__ == '__main__':

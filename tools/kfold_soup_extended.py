@@ -537,6 +537,7 @@ def main():
         hp_soup_dir = Path(args.soup_output).resolve() / f'hp_{hp_index:02d}'
         hp_soup_dir.mkdir(parents=True, exist_ok=True)
         # Uniform soups
+        results_base_cfg = copy.deepcopy(hp_cfg)
         uniform_results = synthesize_uniform_soups(
             fold_infos,
             args.min_soup_size,
@@ -544,7 +545,7 @@ def main():
             hp_soup_dir,
             device,
             test_split=test_split_path,
-            base_config=hp_cfg if test_split_path is not None else None
+            base_config=results_base_cfg if test_split_path is not None else None
         )
         for rec in uniform_results:
             rec['hyperparam_index'] = hp_index
@@ -557,7 +558,7 @@ def main():
                 hp_soup_dir,
                 device,
                 test_split=test_split_path,
-                base_config=hp_cfg if test_split_path is not None else None
+                base_config=results_base_cfg if test_split_path is not None else None
             )
             greedy_result['hyperparam_index'] = hp_index
             greedy_result['soup_type'] = 'greedy'
