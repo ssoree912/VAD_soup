@@ -418,7 +418,9 @@ def analyze_fold_data(fold_cfg: Dict[str, Any], device: torch.device, output_dir
 
 
 def build_fold_configs(base_cfg: Dict[str, Any], training_lines: List[str], k: int, seed: int,
-                       hyperparam_index: int, work_dir: Path) -> List[Tuple[int, Dict[str, Any], Path, Path, Path]]:
+                       hyperparam_index: int, work_dir: Path,
+                       shared_validation: bool = False,
+                       shared_val_index: Optional[int] = None) -> List[Tuple[int, Dict[str, Any], Path, Path, Path, Dict[str, Any]]]:
     """Prepare fold configurations for a specific hyperparameter.
 
     Given a base configuration dictionary and the list of training sample
@@ -435,35 +437,121 @@ def build_fold_configs(base_cfg: Dict[str, Any], training_lines: List[str], k: i
         hyperparam_index: Index of the hyperparameter configuration.
         work_dir: Root directory for temporary files.
 
+    When ``shared_validation`` is True, the dataset is split into ``k + 1``
+    folds.  The fold identified by ``shared_val_index`` becomes a common
+    validation split for all models, and each remaining fold is treated as a
+    holdout while the other folds form its training data.
+
     Returns:
-        A list of tuples for each fold: (fold_idx, fold_cfg, train_split_file, val_split_file, fold_config_path)
+        A list of tuples for each fold: (fold_idx, fold_cfg, train_split_file,
+        val_split_file, fold_config_path, metadata)
     """
-    kf = KFold(n_splits=k, shuffle=True, random_state=seed)
-    fold_configs = []
-    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(training_lines), 1):
-        train_lines = [training_lines[i] for i in train_idx]
+    if not shared_validation:
+        kf = KFold(n_splits=k, shuffle=True, random_state=seed)
+        fold_configs: List[Tuple[int, Dict[str, Any], Path, Path, Path, Dict[str, Any]]] = []
+        for fold_idx, (train_idx, val_idx) in enumerate(kf.split(training_lines), 1):
+            train_lines = [training_lines[i] for i in train_idx]
+            val_lines = [training_lines[i] for i in val_idx]
+
+            fold_dir = work_dir / f'hp_{hyperparam_index:02d}' / f'fold_{fold_idx:02d}'
+            fold_dir.mkdir(parents=True, exist_ok=True)
+
+            train_split_file = fold_dir / 'train_split.txt'
+            val_split_file = fold_dir / 'val_split.txt'
+            write_split(train_split_file, train_lines)
+            write_split(val_split_file, val_lines)
+
+            fold_cfg = copy.deepcopy(base_cfg)
+            fold_cfg['training_split'] = str(train_split_file)
+            fold_cfg['testing_split'] = str(val_split_file)
+            # Use a separate logger and checkpoint path per hyperparam and fold
+            fold_cfg['logger_path'] = str(fold_dir / 'logs')
+            fold_cfg['ckpt_path'] = str(fold_dir / 'ckpts')
+            fold_cfg['seed'] = fold_cfg.get('seed', 1) + fold_idx
+
+            metadata = {
+                'train_fold_indices': [i for i in range(1, k + 1) if i != fold_idx],
+                'holdout_fold_index': fold_idx,
+                'shared_validation': False,
+            }
+
+            fold_config_path = fold_dir / 'config.yaml'
+            save_config_dict(fold_cfg, fold_config_path)
+
+            fold_configs.append((fold_idx, fold_cfg, train_split_file, val_split_file, fold_config_path, metadata))
+        return fold_configs
+
+    # Shared validation logic
+    if k < 2:
+        raise ValueError('shared_validation mode requires --folds >= 2 (at least two training folds besides validation).')
+
+    total_folds = k + 1
+    kf = KFold(n_splits=total_folds, shuffle=True, random_state=seed)
+    split_lines: List[List[str]] = []
+    for _, val_idx in kf.split(training_lines):
         val_lines = [training_lines[i] for i in val_idx]
+        split_lines.append(val_lines)
+
+    if shared_val_index is None:
+        shared_val_index = total_folds
+
+    if not 1 <= shared_val_index <= total_folds:
+        raise ValueError(f'shared_val_index must be between 1 and {total_folds}, got {shared_val_index}.')
+
+    shared_zero_idx = shared_val_index - 1
+    shared_val_lines = split_lines[shared_zero_idx]
+
+    fold_configs = []
+    shared_dir = work_dir / f'hp_{hyperparam_index:02d}'
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    shared_val_file = shared_dir / 'shared_validation_split.txt'
+    write_split(shared_val_file, shared_val_lines)
+
+    for fold_idx in range(1, total_folds + 1):
+        if fold_idx == shared_val_index:
+            continue
+
+        fold_lines = split_lines[fold_idx - 1]
+        train_lines: List[str] = []
+        for other_idx, other_lines in enumerate(split_lines, 1):
+            if other_idx in (shared_val_index, fold_idx):
+                continue
+            train_lines.extend(other_lines)
+
+        if not train_lines:
+            raise ValueError('Training split is empty for fold {} in shared_validation mode.'.format(fold_idx))
 
         fold_dir = work_dir / f'hp_{hyperparam_index:02d}' / f'fold_{fold_idx:02d}'
         fold_dir.mkdir(parents=True, exist_ok=True)
 
         train_split_file = fold_dir / 'train_split.txt'
-        val_split_file = fold_dir / 'val_split.txt'
         write_split(train_split_file, train_lines)
-        write_split(val_split_file, val_lines)
+
+        holdout_split_file = fold_dir / 'holdout_split.txt'
+        write_split(holdout_split_file, fold_lines)
 
         fold_cfg = copy.deepcopy(base_cfg)
         fold_cfg['training_split'] = str(train_split_file)
-        fold_cfg['testing_split'] = str(val_split_file)
-        # Use a separate logger and checkpoint path per hyperparam and fold
+        fold_cfg['testing_split'] = str(shared_val_file)
         fold_cfg['logger_path'] = str(fold_dir / 'logs')
         fold_cfg['ckpt_path'] = str(fold_dir / 'ckpts')
         fold_cfg['seed'] = fold_cfg.get('seed', 1) + fold_idx
 
+        metadata = {
+            'train_fold_indices': [i for i in range(1, total_folds + 1)
+                                   if i not in (shared_val_index, fold_idx)],
+            'holdout_fold_index': fold_idx,
+            'shared_validation': True,
+            'shared_val_fold_index': shared_val_index,
+            'holdout_split_path': str(holdout_split_file),
+            'shared_val_path': str(shared_val_file),
+        }
+
         fold_config_path = fold_dir / 'config.yaml'
         save_config_dict(fold_cfg, fold_config_path)
 
-        fold_configs.append((fold_idx, fold_cfg, train_split_file, val_split_file, fold_config_path))
+        fold_configs.append((fold_idx, fold_cfg, train_split_file, shared_val_file, fold_config_path, metadata))
+
     return fold_configs
 
 
@@ -513,14 +601,20 @@ def synthesize_uniform_soups(fold_infos: List[Dict[str, Any]], min_size: int, ma
                 pr, roc = evaluate_checkpoint(soup_path, info['config'], info['val_split'], device)
                 pr_list.append(pr)
                 roc_list.append(roc)
-            per_fold_metrics = [
-                {
+            per_fold_metrics = []
+            for info, pr, roc in zip(selected_infos, pr_list, roc_list):
+                entry: Dict[str, Any] = {
                     'fold_index': info['fold_idx'],
                     'pr_auc': float(pr),
                     'roc_auc': float(roc),
                 }
-                for info, pr, roc in zip(selected_infos, pr_list, roc_list)
-            ]
+                holdout_split = info.get('holdout_split')
+                if holdout_split is not None:
+                    hold_pr, hold_roc = evaluate_checkpoint(soup_path, info['config'], holdout_split, device)
+                    entry['holdout_pr_auc'] = float(hold_pr)
+                    entry['holdout_roc_auc'] = float(hold_roc)
+                    entry['holdout_split'] = str(holdout_split)
+                per_fold_metrics.append(entry)
             avg_pr = sum(pr_list) / len(pr_list)
             avg_roc = sum(roc_list) / len(roc_list)
             min_pr = min(pr_list)
@@ -627,6 +721,17 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
     # If no model was selected, fall back to the best individual
     if not selected_indices:
         best_idx = sorted_indices[0]
+        entry: Dict[str, Any] = {
+            'fold_index': fold_infos[best_idx]['fold_idx'],
+            'pr_auc': float(individual_metrics[best_idx][0]),
+            'roc_auc': float(individual_metrics[best_idx][1]),
+        }
+        holdout_split = fold_infos[best_idx].get('holdout_split')
+        if holdout_split is not None:
+            hold_pr, hold_roc = evaluate_checkpoint(fold_infos[best_idx]['ckpt'], fold_infos[best_idx]['config'], holdout_split, device)
+            entry['holdout_pr_auc'] = float(hold_pr)
+            entry['holdout_roc_auc'] = float(hold_roc)
+            entry['holdout_split'] = str(holdout_split)
         return {
             'soup_path': str(fold_infos[best_idx]['ckpt']),
             'selected_folds': [fold_infos[best_idx]['fold_idx']],
@@ -634,13 +739,7 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
             'avg_roc_auc': individual_metrics[best_idx][1],
             'min_pr_auc': individual_metrics[best_idx][0],
             'min_roc_auc': individual_metrics[best_idx][1],
-            'per_fold_metrics': [
-                {
-                    'fold_index': fold_infos[best_idx]['fold_idx'],
-                    'pr_auc': float(individual_metrics[best_idx][0]),
-                    'roc_auc': float(individual_metrics[best_idx][1]),
-                }
-            ],
+            'per_fold_metrics': [entry],
         }
     # Save final greedy soup state
     soup_path = output_dir / 'greedy_soup.pkl'
@@ -654,11 +753,18 @@ def construct_greedy_soup(fold_infos: List[Dict[str, Any]], output_dir: Path,
         pr, roc = evaluate_checkpoint(soup_path, info['config'], info['val_split'], device)
         pr_list.append(pr)
         roc_list.append(roc)
-        per_fold_metrics.append({
+        entry = {
             'fold_index': info['fold_idx'],
             'pr_auc': float(pr),
             'roc_auc': float(roc),
-        })
+        }
+        holdout_split = info.get('holdout_split')
+        if holdout_split is not None:
+            hold_pr, hold_roc = evaluate_checkpoint(soup_path, info['config'], holdout_split, device)
+            entry['holdout_pr_auc'] = float(hold_pr)
+            entry['holdout_roc_auc'] = float(hold_roc)
+            entry['holdout_split'] = str(holdout_split)
+        per_fold_metrics.append(entry)
     avg_pr = sum(pr_list) / len(pr_list)
     avg_roc = sum(roc_list) / len(roc_list)
     min_pr = min(pr_list)
@@ -696,7 +802,12 @@ def main():
     parser.add_argument('--analyze_folds', action='store_true', help='Compute per-fold data distribution diagnostics')
     parser.add_argument('--analysis_dir', type=str, default=None, help='Directory to save fold analysis artifacts (plots, metrics)')
     parser.add_argument('--analysis_max_samples', type=int, default=5000, help='Maximum samples per split used for analysis/visualization')
+    parser.add_argument('--shared_validation', action='store_true', help='Reserve a shared validation fold (k+1 splits total) used by every model.')
+    parser.add_argument('--shared_val_index', type=int, default=None, help='1-based index of the shared validation fold when --shared_validation is set (defaults to the last fold).')
     args = parser.parse_args()
+
+    if args.shared_val_index is not None and not args.shared_validation:
+        parser.error('--shared_val_index requires --shared_validation to be enabled.')
 
     # Flatten train_flags if nested quoting used
     train_flags = []
@@ -739,9 +850,20 @@ def main():
         if hp_dataset_name != dataset_name:
             raise ValueError(f'Dataset mismatch: {hp_dataset_name} vs {dataset_name}')
         # Create fold configs for this hyperparam
-        fold_configs = build_fold_configs(hp_cfg, training_lines, args.folds, args.seed, hp_index, work_dir)
+        fold_configs = build_fold_configs(
+            hp_cfg,
+            training_lines,
+            args.folds,
+            args.seed,
+            hp_index,
+            work_dir,
+            shared_validation=args.shared_validation,
+            shared_val_index=args.shared_val_index,
+        )
         fold_infos = []
-        for fold_idx, fold_cfg, train_file, val_file, fold_config_path in fold_configs:
+        shared_val_path: Optional[Path] = None
+        shared_val_fold_idx: Optional[int] = None
+        for fold_idx, fold_cfg, train_file, val_file, fold_config_path, fold_meta in fold_configs:
             fold_ckpt_root = Path(fold_cfg['ckpt_path']).resolve() / dataset_name
             fold_ckpt_root.mkdir(parents=True, exist_ok=True)
             # Check if a best checkpoint already exists
@@ -761,6 +883,11 @@ def main():
                 if not best_ckpt_path.exists():
                     raise FileNotFoundError(f'Expected checkpoint not found: {best_ckpt_path}')
             mask_path = best_ckpt_path.with_suffix('.pkl.mask')
+            holdout_path = Path(fold_meta['holdout_split_path']) if fold_meta.get('holdout_split_path') else None
+            if fold_meta.get('shared_val_path'):
+                shared_val_path = Path(fold_meta['shared_val_path'])
+            if fold_meta.get('shared_val_fold_index') is not None:
+                shared_val_fold_idx = fold_meta['shared_val_fold_index']
             fold_infos.append({
                 'hyperparam_index': hp_index,
                 'fold_idx': fold_idx,
@@ -768,6 +895,10 @@ def main():
                 'mask': mask_path if mask_path.exists() else None,
                 'val_split': val_file,
                 'config': fold_cfg,
+                'metadata': fold_meta,
+                'holdout_split': holdout_path,
+                'train_fold_indices': fold_meta.get('train_fold_indices'),
+                'shared_validation': fold_meta.get('shared_validation', False),
             })
             if args.analyze_folds:
                 fold_analysis_dir = analysis_root / f'hp_{hp_index:02d}' / f'fold_{fold_idx:02d}'
@@ -815,6 +946,13 @@ def main():
             greedy_result['hyperparam_index'] = hp_index
             greedy_result['soup_type'] = 'greedy'
             all_results.append(greedy_result)
+
+        if args.shared_validation and shared_val_path is not None:
+            for rec in all_results:
+                if rec.get('hyperparam_index') == hp_index:
+                    rec.setdefault('shared_validation_split', str(shared_val_path))
+                    if shared_val_fold_idx is not None:
+                        rec.setdefault('shared_validation_fold_index', shared_val_fold_idx)
 
     # Save consolidated results YAML
     soup_dir = Path(args.soup_output).resolve()
