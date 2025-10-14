@@ -182,7 +182,8 @@ def compute_weight_statistics(model):
 
 
 class PruningHandler:
-    def __init__(self, model, magnitude_ratio, random_ratio, logger=None, random_seed=None):
+    def __init__(self, model, magnitude_ratio, random_ratio, logger=None, random_seed=None,
+                 strategy: str = 'standard', dwa_alpha: float = 0.0, dwa_beta: float = 1.0):
         self.model = model
         self.magnitude_ratio = max(0.0, float(magnitude_ratio)) if magnitude_ratio is not None else 0.0
         self.random_ratio = max(0.0, float(random_ratio)) if random_ratio is not None else 0.0
@@ -195,6 +196,10 @@ class PruningHandler:
         self.released = False
         self.release_epoch = None
         self.stored_mask = {}
+        self.strategy = (strategy or 'standard').lower()
+        self.dwa_alpha = float(dwa_alpha)
+        self.dwa_beta = float(dwa_beta)
+        self.magnitude_threshold = 0.0
         self._create_masks()
 
     def _gather_candidate_params(self):
@@ -240,6 +245,9 @@ class PruningHandler:
         if k_mag > 0:
             _, idx = torch.topk(all_abs, k_mag, largest=False)
             global_mask[idx] = False
+            self.magnitude_threshold = float(all_abs[idx].max().item()) if idx.numel() > 0 else 0.0
+        else:
+            self.magnitude_threshold = 0.0
 
         # Random pruning on remaining weights
         remaining = torch.nonzero(global_mask, as_tuple=False).view(-1)
@@ -281,10 +289,38 @@ class PruningHandler:
     def apply_gradients(self):
         if not self.active or self.released:
             return
+        if self.strategy != 'dwa_kill_and_reactivate':
+            for entry in self.entries:
+                grad = entry['param'].grad
+                if grad is not None:
+                    grad.data.mul_(entry['mask'])
+            return
+
+        beta = self.dwa_beta
+        alpha = self.dwa_alpha
         for entry in self.entries:
             grad = entry['param'].grad
-            if grad is not None:
-                grad.data.mul_(entry['mask'])
+            if grad is None:
+                continue
+            param = entry['param']
+            mask = entry['mask']
+            tau = param.new_tensor(self.magnitude_threshold)
+            abs_w = param.data.abs()
+            diff = (abs_w - tau).abs()
+            base_alive = grad * mask * abs_w
+            base_dead = grad * (1 - mask) * diff
+            g_base = beta * (base_alive + base_dead)
+
+            if alpha != 0.0:
+                sign_w = param.data.sign()
+                sign_g = grad.sign()
+                kill_cond = (abs_w > tau) & (sign_w == sign_g) & (mask > 0)
+                reactivate_cond = (abs_w <= tau) & (sign_w != sign_g)
+                delta = alpha * sign_w * kill_cond.to(param.dtype)
+                delta = delta - alpha * sign_w * reactivate_cond.to(param.dtype)
+                grad.data.copy_(g_base + delta)
+            else:
+                grad.data.copy_(g_base)
 
     def apply_weights(self):
         if not self.active or self.released:
@@ -356,6 +392,11 @@ def parse_args():
     parser.add_argument('--prune_magnitude_ratio', type=float, default=None, help='Fraction of parameters to prune by magnitude')
     parser.add_argument('--prune_random_ratio', type=float, default=None, help='Fraction of parameters to prune randomly in addition')
     parser.add_argument('--prune_random_seed', type=int, default=None, help='Seed to use for random pruning only')
+    parser.add_argument('--pruning_strategy', type=str, default='standard',
+                        choices=['standard', 'dwa_kill_and_reactivate'],
+                        help='Pruning gradient strategy to apply when pruning is enabled')
+    parser.add_argument('--dwa_alpha', type=float, default=0.0, help='Acceleration magnitude for DWA pruning strategy')
+    parser.add_argument('--dwa_beta', type=float, default=1.0, help='Base scaling factor for DWA pruning strategy')
     parser.add_argument('--use_early_unprune', dest='use_early_unprune', action='store_true', help='Release pruning masks after a portion of training')
     parser.add_argument('--no_early_unprune', dest='use_early_unprune', action='store_false', help='Keep pruning masks active through entire training')
     parser.set_defaults(use_early_unprune=False)
@@ -419,8 +460,16 @@ if __name__ == '__main__':
 
     pruning_handler = None
     if args.use_pruning:
-        pruning_handler = PruningHandler(model, args.prune_magnitude_ratio, args.prune_random_ratio, logger,
-                                         random_seed=getattr(args, 'prune_random_seed', None))
+        pruning_handler = PruningHandler(
+            model,
+            args.prune_magnitude_ratio,
+            args.prune_random_ratio,
+            logger,
+            random_seed=getattr(args, 'prune_random_seed', None),
+            strategy=getattr(args, 'pruning_strategy', 'standard'),
+            dwa_alpha=getattr(args, 'dwa_alpha', 0.0),
+            dwa_beta=getattr(args, 'dwa_beta', 1.0),
+        )
         if args.use_wandb and wandb_run is not None and pruning_handler.total_params:
             wandb_run.summary['pruning/total_params'] = pruning_handler.total_params
             wandb_run.summary['pruning/pruned_params'] = pruning_handler.pruned_params
