@@ -82,26 +82,44 @@ class MaskerScalingKill(torch.autograd.Function):
 class MaskerScalingKillAndReactivate(torch.autograd.Function):
     """
     (3) Kill & Reactivate (양쪽 모두):
-        g' = beta * g * m * |w| + alpha * g * (1-m) * ||w| - tau|
+        - 기본 모드: g' = beta * g * m * |w| + alpha * g * (1-m) * ||w| - tau|
+        - 가속 모드(delta): 위 값에 추가로 sign 기반 델타 항을 더해 재활성화를 강화
     """
     @staticmethod
-    def forward(ctx, x, mask, alpha, beta, threshold):
+    def forward(ctx, x, mask, alpha, beta, threshold, use_delta):
         ctx.save_for_backward(mask, x, threshold)
         ctx.alpha = alpha
         ctx.beta = beta
+        ctx.use_delta = bool(use_delta)
         return x * mask
 
     @staticmethod
     def backward(ctx, grad_out):
         mask, x, threshold = ctx.saved_tensors
         alpha, beta = ctx.alpha, ctx.beta
+        use_delta = ctx.use_delta
+
         abs_w = torch.abs(x)
         diff = torch.abs(abs_w - threshold)  # ||w| - tau|
+        grad_alive = grad_out * mask * abs_w
+        grad_dead = grad_out * (1 - mask) * diff
 
-        base_alive = grad_out * mask * abs_w * beta
-        base_dead = grad_out * (1 - mask) * diff * alpha
-        g_new = base_alive + base_dead
-        return g_new, None, None, None, None
+        if use_delta:
+            g_base = beta * (grad_alive + grad_dead)
+            if alpha != 0.0:
+                sign_w = torch.sign(x)
+                sign_g = torch.sign(grad_out)
+                kill_cond = (abs_w > threshold) & (sign_w == sign_g) & (mask > 0)
+                reactivate_cond = (abs_w <= threshold) & (sign_w != sign_g)
+                delta = alpha * sign_w * kill_cond.to(grad_out.dtype)
+                delta = delta - alpha * sign_w * reactivate_cond.to(grad_out.dtype)
+                g_new = g_base + delta
+            else:
+                g_new = g_base
+        else:
+            g_new = beta * grad_alive + alpha * grad_dead
+
+        return g_new, None, None, None, None, None
 
 
 ################################################################
@@ -127,6 +145,7 @@ class MaskConv2d(nn.Conv2d):
         self.forward_type = 'kill_and_reactivate'
         self.alpha = 1.0
         self.beta = 1.0
+        self.acceleration_mode = 'delta'
         self.threshold = Parameter(torch.tensor(0.05, dtype=self.weight.dtype, device=self.weight.device),
                                    requires_grad=False)
 
@@ -147,8 +166,9 @@ class MaskConv2d(nn.Conv2d):
                 self.weight, self.mask, self.beta
             )
         elif ft == "kill_and_reactivate":
+            use_delta = 1 if getattr(self, "acceleration_mode", "delta").lower() == "delta" else 0
             masked_weight = MaskerScalingKillAndReactivate.apply(
-                self.weight, self.mask, self.alpha, self.beta, self.threshold
+                self.weight, self.mask, self.alpha, self.beta, self.threshold, use_delta
             )
         else:
             raise NotImplementedError(f"Unknown forward_type: {self.forward_type}")
@@ -158,5 +178,6 @@ class MaskConv2d(nn.Conv2d):
                         self.padding, self.dilation, self.groups)
 
 
-# 요약: Kill & Reactivate 마스커의 최종 수정 그래디언트는
-#   G' = β · G·m·|W| + α · G·(1-m)·||W|-τ|
+# 요약:
+#   - 기본 모드: G' = β · G·m·|W| + α · G·(1-m)·||W|-τ|
+#   - delta 모드: 위 식에 조건부 델타 항(±α·sgn(W))을 더해 가속화

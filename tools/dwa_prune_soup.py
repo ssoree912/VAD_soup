@@ -51,6 +51,9 @@ def main() -> None:
                         help='Pruning strategy passed to training (default: dwa_kill_and_reactivate)')
     parser.add_argument('--dwa_alpha', type=float, default=0.1, help='Acceleration term coefficient alpha (used only for DWA)')
     parser.add_argument('--dwa_beta', type=float, default=1.0, help='Base scaling coefficient beta (used only for DWA)')
+    parser.add_argument('--dwa_acceleration', type=str, default='delta',
+                        choices=['delta', 'simple', 'none'],
+                        help='Choose DWA acceleration mode passed to training (delta adds sign-boost)')
     args = parser.parse_args()
 
     train_flags = parse_train_flags(args.train_flags)
@@ -81,6 +84,7 @@ def main() -> None:
             if args.pruning_strategy == 'dwa_kill_and_reactivate':
                 append_flag(extra_flags, '--dwa_alpha', str(args.dwa_alpha))
                 append_flag(extra_flags, '--dwa_beta', str(args.dwa_beta))
+                append_flag(extra_flags, '--dwa_acceleration', args.dwa_acceleration)
             if prune_seed is not None:
                 append_flag(extra_flags, '--prune_random_seed', str(prune_seed))
 
@@ -99,6 +103,7 @@ def main() -> None:
             if args.pruning_strategy == 'dwa_kill_and_reactivate':
                 record['dwa_alpha'] = args.dwa_alpha
                 record['dwa_beta'] = args.dwa_beta
+                record['dwa_acceleration'] = args.dwa_acceleration
             if prune_seed is not None:
                 record['prune_random_seed'] = prune_seed
             run_records.append(record)
@@ -137,6 +142,7 @@ def main() -> None:
     if args.pruning_strategy == 'dwa_kill_and_reactivate':
         pruning_settings['dwa_alpha'] = args.dwa_alpha
         pruning_settings['dwa_beta'] = args.dwa_beta
+        pruning_settings['dwa_acceleration'] = args.dwa_acceleration
 
     results: Dict[str, Any] = {
         'config': str(config_path),
