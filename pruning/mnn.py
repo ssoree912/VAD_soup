@@ -82,9 +82,7 @@ class MaskerScalingKill(torch.autograd.Function):
 class MaskerScalingKillAndReactivate(torch.autograd.Function):
     """
     (3) Kill & Reactivate (양쪽 모두):
-        g'_base = beta * [ g * m * |w| + g * (1-m) * ||w| - tau| ]
-        delta  = piecewise acceleration term
-        g'     = g'_base + delta
+        g' = beta * g * m * |w| + alpha * g * (1-m) * ||w| - tau|
     """
     @staticmethod
     def forward(ctx, x, mask, alpha, beta, threshold):
@@ -98,22 +96,11 @@ class MaskerScalingKillAndReactivate(torch.autograd.Function):
         mask, x, threshold = ctx.saved_tensors
         alpha, beta = ctx.alpha, ctx.beta
         abs_w = torch.abs(x)
-        sign_w = torch.sign(x)
-        sign_g = torch.sign(grad_out)
-
         diff = torch.abs(abs_w - threshold)  # ||w| - tau|
-        base_alive = grad_out * mask * abs_w
-        base_dead = grad_out * (1 - mask) * diff
-        g_base = beta * (base_alive + base_dead)
 
-        delta = torch.zeros_like(grad_out)
-        if alpha != 0.0:
-            kill_cond = (abs_w > threshold) & (sign_w == sign_g) & (mask > 0)
-            reactivate_cond = (abs_w <= threshold) & (sign_w != sign_g)
-            delta = delta + alpha * sign_w * kill_cond.to(grad_out.dtype)
-            delta = delta - alpha * sign_w * reactivate_cond.to(grad_out.dtype)
-
-        g_new = g_base + delta
+        base_alive = grad_out * mask * abs_w * beta
+        base_dead = grad_out * (1 - mask) * diff * alpha
+        g_new = base_alive + base_dead
         return g_new, None, None, None, None
 
 
@@ -172,7 +159,4 @@ class MaskConv2d(nn.Conv2d):
 
 
 # 요약: Kill & Reactivate 마스커의 최종 수정 그래디언트는
-#   G' = β · [ G·m·|W| + G·(1-m)·||W|-τ| ] + δ
-#   δ = α·sgn(W)  (|W|>τ, sgn(W)=sgn(G), m=1)
-#       -α·sgn(W) (|W|≤τ, sgn(W)≠sgn(G))
-#       0         otherwise
+#   G' = β · G·m·|W| + α · G·(1-m)·||W|-τ|
