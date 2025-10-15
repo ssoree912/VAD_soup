@@ -181,10 +181,14 @@ def main():
 
     if eval_device == 'cuda' and torch.cuda.is_available():
         device = torch.device('cuda:{}'.format(eval_gpu_id))
+    elif eval_device == 'mps' and torch.backends.mps.is_available():
+        device = torch.device('mps')
+        logger.info('Using Apple Silicon GPU (MPS)')
+    elif eval_device in ['cuda', 'mps']:
+        device = torch.device('cpu')
+        logger.warning(f'{eval_device.upper()} requested but not available. Falling back to CPU.')
     else:
         device = torch.device('cpu')
-        if eval_device == 'cuda':
-            logger.warning('CUDA requested but not available. Falling back to CPU.')
 
     model = build_model(args, avg_state, device)
     val_results = evaluate(model, args, device, logger)

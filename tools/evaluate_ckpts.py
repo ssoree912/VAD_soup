@@ -88,10 +88,14 @@ def main():
 
     if cfg.device == 'cuda' and torch.cuda.is_available():
         device = torch.device(f'cuda:{cfg.gpu_id}')
+    elif cfg.device == 'mps' and torch.backends.mps.is_available():
+        device = torch.device('mps')
+        logger.info('Using Apple Silicon GPU (MPS)')
+    elif cfg.device in ['cuda', 'mps']:
+        device = torch.device('cpu')
+        logger.warning(f'{cfg.device.upper()} requested but not available. Falling back to CPU.')
     else:
         device = torch.device('cpu')
-        if cfg.device == 'cuda':
-            logger.warning('CUDA requested but not available. Falling back to CPU.')
 
     logger.info('Preparing dataset with config: %s', args.config)
     test_loader, _, _, _ = CreateDataset(cfg, logger)
