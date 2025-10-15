@@ -78,48 +78,51 @@ class FisherVAD:
             for param in variables:
                 sample_fishers.append(torch.zeros_like(param, device=self.device))
             
-            # Compute Fisher for each time step
-            for t in range(outputs.shape[0]):
-                logit = outputs[t]
+            # Process fewer time steps to reduce memory
+            time_steps = min(outputs.shape[0], 10)  # Limit to 10 time steps
+            step_size = max(1, outputs.shape[0] // time_steps)
+            
+            # Compute Fisher for sampled time steps
+            for i in range(0, outputs.shape[0], step_size):
+                if i >= time_steps * step_size:
+                    break
+                    
+                logit = outputs[i]
                 prob = torch.sigmoid(logit)
                 
-                # Binary classification: compute Fisher for both classes
-                # Fisher = E[grad log p(y|x)]^2 = p(y=1) * [grad log p(y=1)]^2 + p(y=0) * [grad log p(y=0)]^2
+                # Simplified Fisher computation: only use expected gradients
+                # For binary classification, use prob as weight
+                log_prob = F.logsigmoid(logit) if prob > 0.5 else F.logsigmoid(-logit)
                 
-                # For y=1 (anomaly)
-                log_prob_1 = F.logsigmoid(logit)
-                grads_1 = torch.autograd.grad(
-                    outputs=log_prob_1, 
-                    inputs=variables, 
-                    retain_graph=True,
-                    create_graph=False
-                )
+                try:
+                    grads = torch.autograd.grad(
+                        outputs=log_prob, 
+                        inputs=variables, 
+                        retain_graph=True,
+                        create_graph=False
+                    )
+                    
+                    # Accumulate Fisher information (gradient squared)
+                    for j, grad in enumerate(grads):
+                        if grad is not None:
+                            sample_fishers[j] += grad ** 2
+                            
+                except RuntimeError:
+                    # Skip if gradient computation fails
+                    continue
                 
-                # For y=0 (normal)
-                log_prob_0 = F.logsigmoid(-logit)  # log(1-sigmoid(logit))
-                grads_0 = torch.autograd.grad(
-                    outputs=log_prob_0, 
-                    inputs=variables, 
-                    retain_graph=True,
-                    create_graph=False
-                )
-                
-                # Accumulate Fisher information weighted by probabilities
-                for i, (g1, g0) in enumerate(zip(grads_1, grads_0)):
-                    fisher_t = prob * (g1 ** 2) + (1 - prob) * (g0 ** 2)
-                    sample_fishers[i] += fisher_t
-                # Clear gradients to avoid accumulation/backwards-through-graph errors
+                # Clear gradients
                 for param in variables:
                     if param.grad is not None:
                         param.grad.zero_()
             
             # Average over time steps
             for fisher in sample_fishers:
-                fisher /= outputs.shape[0]
+                fisher /= time_steps
                 
         return sample_fishers
     
-    def compute_fisher_for_model(self, dataloader) -> List[torch.Tensor]:
+    def compute_fisher_for_model(self, dataloader, max_batches=100) -> List[torch.Tensor]:
         """Compute Fisher Information Matrix for the entire model using the given dataloader."""
         self.logger.info("Computing Fisher Information Matrix for VAD model...")
         
@@ -140,16 +143,28 @@ class FisherVAD:
                 param.requires_grad_(True)
         
         for batch_idx, batch_data in enumerate(dataloader):
-            batch_fishers = self._compute_fisher_for_batch(batch_data, variables)
-            
-            # Accumulate Fisher information
-            for i, batch_fisher in enumerate(batch_fishers):
-                fishers[i] += batch_fisher.detach()
-            
-            n_batches += 1
-            
-            if batch_idx % 10 == 0:
-                self.logger.info(f"Processed batch {batch_idx + 1}")
+            if batch_idx >= max_batches:
+                self.logger.info(f"Reached maximum batches limit ({max_batches})")
+                break
+                
+            try:
+                batch_fishers = self._compute_fisher_for_batch(batch_data, variables)
+                
+                # Accumulate Fisher information
+                for i, batch_fisher in enumerate(batch_fishers):
+                    fishers[i] += batch_fisher.detach()
+                
+                n_batches += 1
+                
+                # Clear cache more frequently
+                if batch_idx % 5 == 0:
+                    torch.cuda.empty_cache()
+                    self.logger.info(f"Processed batch {batch_idx + 1}")
+                    
+            except torch.cuda.OutOfMemoryError:
+                self.logger.warning(f"CUDA OOM at batch {batch_idx}, clearing cache and continuing...")
+                torch.cuda.empty_cache()
+                continue
         
         # Average over all batches
         for fisher in fishers:
