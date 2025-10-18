@@ -10,6 +10,7 @@ data/shanghaitech/training
 wandb
 logger
 ckpts/
+ckp/
 kfold_runs/
 reports/
 results/
