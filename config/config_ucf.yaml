@@ -1,5 +1,5 @@
 device: 'cuda'
-gpu_id: 1
+gpu_id: 0
 
 lr: 0.0001
 momentum: 0.9
@@ -28,14 +28,14 @@ segment_len: 16
 process_len: 32
 feature_dim: 2048
 
-r: 0.4 # abnormal ratio
-h: 0.1 # high confidence normal videos ratio
+r: 0.4   # abnormal ratio
+h: 0.1   # high-confidence normal videos ratio
 
 sample_type: 'uniform'
 
 logger_path: './logger'
-ckpt_path: './ckpts'
-pretrained_path: 
+ckpt_path: './ckpts/ucf_crime'
+pretrained_path:
 
 dataset: 'ucf-crime'
 feature_path: './data/ucf-crime/features'
@@ -45,5 +45,5 @@ testing_split: './data/ucf-crime/Anomaly_Test.txt'
 np_scores_path: './data/ucf-crime/pseudo_label_scores_ucf.npy'
 feature_name_end: '_res.npy'
 
-th_auc: 0.5
-th_pr: 0.25
+th_auc: 0.75
+th_pr: 0.5
