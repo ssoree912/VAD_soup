@@ -10,8 +10,9 @@ import argparse
 import logging
 import os
 import sys
-from types import SimpleNamespace
+from collections import deque
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -20,9 +21,9 @@ from PIL import Image
 from tqdm import tqdm
 
 
-def setup_logging():
+def setup_logging(level=logging.INFO):
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format='[%(asctime)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
@@ -30,7 +31,8 @@ def setup_logging():
 
 
 class VideoFeatureExtractor:
-    def __init__(self, model_path, device='cuda', repo_root=None, sample_size=112, sample_duration=16):
+    def __init__(self, model_path, device='cuda', repo_root=None, sample_size=112, sample_duration=16,
+                 max_segments=None):
         self.logger = logging.getLogger(__name__)
         self.device = self._resolve_device(device)
         self.sample_size = sample_size
@@ -45,6 +47,7 @@ class VideoFeatureExtractor:
             self.ToTensor(),
             self.Normalize(self.mean, [1, 1, 1]),
         ])
+        self.max_segments = max_segments if (max_segments and max_segments > 0) else None
 
     def _resolve_device(self, device):
         requested = torch.device(device if torch.cuda.is_available() and device.startswith('cuda') else 'cpu')
@@ -122,61 +125,91 @@ class VideoFeatureExtractor:
             return {key.replace('module.', '', 1): value for key, value in state_dict.items()}
         return state_dict
 
-    def _read_video_frames(self, video_path):
+    def _frame_iterator(self, video_path):
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             self.logger.error(f"Failed to open video: {video_path}")
-            return []
+            return
 
-        frames = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames.append(Image.fromarray(frame))
-        cap.release()
-        return frames
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                yield Image.fromarray(frame)
+        finally:
+            cap.release()
 
-    def _prepare_clip(self, frames, indices):
-        if len(indices) < self.sample_duration:
-            indices = self.temporal_transform(list(indices))
-        clip = [self.spatial_transform(frames[idx]) for idx in indices]
-        clip_tensor = torch.stack(clip, dim=0).permute(1, 0, 2, 3).unsqueeze(0)
-        return clip_tensor.to(self.device)
-
-    def extract_features_from_video(self, video_path, segment_len=16, overlap=8):
-        frames = self._read_video_frames(video_path)
-        if not frames:
+    def _assemble_clip(self, frames):
+        clip_frames = list(frames)
+        if not clip_frames:
             return None
 
+        indices = list(range(len(clip_frames)))
+        if len(indices) < self.sample_duration:
+            indices = self.temporal_transform(indices)
+            clip_frames = [clip_frames[idx] for idx in indices]
+
+        processed = [self.spatial_transform(img) for img in clip_frames[:self.sample_duration]]
+        clip_tensor = torch.stack(processed, dim=0).permute(1, 0, 2, 3).unsqueeze(0)
+        return clip_tensor.to(self.device)
+
+    def _forward_clip(self, clip_tensor):
+        with torch.no_grad():
+            outputs = self.model(clip_tensor)
+        feature = outputs.squeeze().detach().cpu().float().numpy()
+        return feature
+
+    def extract_features_from_video(self, video_path, video_name=None, segment_len=16, overlap=8):
         if segment_len <= 0:
             raise ValueError("segment_len must be a positive integer.")
         if overlap >= segment_len:
             raise ValueError("overlap must be smaller than segment_len to make progress.")
 
-        features = []
         step_size = segment_len - overlap
+        frame_buffer = deque()
+        features = []
+        segment_count = 0
+        video_stem = video_name or Path(video_path).stem
 
-        total_frames = len(frames)
-        for start_idx in range(0, total_frames, step_size):
-            end_idx = min(start_idx + segment_len, total_frames)
-            frame_indices = list(range(start_idx, end_idx))
-            if len(frame_indices) == 0:
+        for frame in self._frame_iterator(video_path):
+            frame_buffer.append(frame)
+
+            if len(frame_buffer) < segment_len:
+                continue
+
+            clip_tensor = self._assemble_clip(frame_buffer)
+            if clip_tensor is None:
+                continue
+
+            feature = self._forward_clip(clip_tensor)
+            features.append(feature)
+            segment_count += 1
+
+            if self.max_segments and segment_count >= self.max_segments:
+                self.logger.debug(
+                    "Reached max_segments=%s for %s. Stopping further processing.",
+                    self.max_segments,
+                    video_stem,
+                )
+                frame_buffer.clear()
                 break
 
-            clip_tensor = self._prepare_clip(frames, frame_indices)
+            for _ in range(step_size):
+                if frame_buffer:
+                    frame_buffer.popleft()
 
-            with torch.no_grad():
-                outputs = self.model(clip_tensor)
+        if frame_buffer:
+            clip_tensor = self._assemble_clip(frame_buffer)
+            if clip_tensor is not None:
+                feature = self._forward_clip(clip_tensor)
+                features.append(feature)
 
-            clip_features = outputs.squeeze().cpu().numpy()
-            features.append(clip_features)
+        if not features:
+            return None
 
-            if end_idx >= total_frames:
-                break
-
-        return np.array(features)
+        return np.stack(features)
 
 
 def get_video_files(video_dir, extensions=('.mp4', '.avi', '.mov', '.mkv')):
@@ -196,10 +229,15 @@ def main():
     parser.add_argument('--overlap', type=int, default=8, help='Number of overlapping frames between consecutive clips.')
     parser.add_argument('--device', default='cuda', help='Device to use (cuda / cpu).')
     parser.add_argument('--repo_root', default=None, help='Path to the cloned video-classification-3d-cnn-pytorch repository.')
+    parser.add_argument('--log_level', default='info', choices=['debug', 'info', 'warning', 'error', 'critical'],
+                        help='Logging verbosity.')
+    parser.add_argument('--max_segments', type=int, default=None,
+                        help='Maximum number of temporal segments to extract per video.')
 
     args = parser.parse_args()
 
-    logger = setup_logging()
+    log_level = getattr(logging, args.log_level.upper(), logging.INFO)
+    logger = setup_logging(log_level)
     logger.info("Starting UCF-Crime feature extraction.")
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -210,13 +248,15 @@ def main():
             model_path=args.model_path,
             device=args.device,
             repo_root=args.repo_root,
-            sample_duration=args.segment_len
+            sample_duration=args.segment_len,
+            max_segments=args.max_segments,
         )
         logger.info(f"Model ready on device: {extractor.device}")
     except Exception as exc:
         logger.error(f"Failed to initialise feature extractor: {exc}")
         return 1
 
+    logger.debug("Command line arguments: %s", vars(args))
     logger.info(f"Scanning for videos in: {args.video_dir}")
     video_files = get_video_files(args.video_dir)
     logger.info(f"Found {len(video_files)} video files.")
@@ -238,8 +278,10 @@ def main():
             continue
 
         try:
+            logger.debug("Processing video: %s", video_path)
             features = extractor.extract_features_from_video(
                 video_path,
+                video_name=video_name,
                 segment_len=args.segment_len,
                 overlap=args.overlap
             )
@@ -252,6 +294,7 @@ def main():
             np.save(output_file, features)
             logger.info(f"Saved features for {video_name}: {features.shape}")
             successful += 1
+            logger.debug("Saved to %s", output_file)
         else:
             logger.error(f"Failed to extract features from {video_path}")
             failed += 1
