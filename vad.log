@@ -1,0 +1,1356 @@
+python3 main.py --load_config config/config_sh.yaml --device cuda --gpu_id 0 --seed 1 --usse_wandbM7211aa00b:/workspace# [K
+[KMroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# saaadsas  ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# python3 main.py --load_config config/config_sh.yaml --device cuda --gpu_id 0 --seed 1 --usse_wandb
+[?2004lset seed 1
+[2025-10-04 06:40:01,363] Train this model at time 2025-10-04-06_40_01
+[2025-10-04 06:40:01,363] anno_path	./data/shanghaitech/testing/test_frame_mask
+[2025-10-04 06:40:01,364] batch_size	30
+[2025-10-04 06:40:01,364] ckpt_path	./ckpts
+[2025-10-04 06:40:01,364] config_file	None
+[2025-10-04 06:40:01,364] dataset	shanghaitech
+[2025-10-04 06:40:01,364] device	cuda
+[2025-10-04 06:40:01,364] dropout_rate	0.7
+[2025-10-04 06:40:01,364] epochs	300
+[2025-10-04 06:40:01,364] feature_dim	2048
+[2025-10-04 06:40:01,364] feature_name_end	_res.npy
+[2025-10-04 06:40:01,364] feature_path	./data/shanghaitech/features
+[2025-10-04 06:40:01,364] gpu_id	0
+[2025-10-04 06:40:01,364] h	0.1
+[2025-10-04 06:40:01,364] logger_path	./logger
+[2025-10-04 06:40:01,364] lr	0.0001
+[2025-10-04 06:40:01,364] momentum	0.9
+[2025-10-04 06:40:01,364] np_scores_path	./data/shanghaitech/pseudo_label_scores_sh.npy
+[2025-10-04 06:40:01,364] pretrained_path	None
+[2025-10-04 06:40:01,364] process_len	32
+[2025-10-04 06:40:01,364] r	0.4
+[2025-10-04 06:40:01,364] sample_type	uniform
+[2025-10-04 06:40:01,364] seed	1
+[2025-10-04 06:40:01,364] segment_len	16
+[2025-10-04 06:40:01,364] test_freq	1
+[2025-10-04 06:40:01,364] testing_split	./data/shanghaitech/test_split.txt
+[2025-10-04 06:40:01,365] th_auc	0.75
+[2025-10-04 06:40:01,365] th_pr	0.5
+[2025-10-04 06:40:01,365] training_split	./data/shanghaitech/train_split.txt
+[2025-10-04 06:40:01,365] use_wandb	True
+[2025-10-04 06:40:01,365] wandb_entity	None
+[2025-10-04 06:40:01,365] wandb_group	None
+[2025-10-04 06:40:01,365] wandb_project	vad
+[2025-10-04 06:40:01,365] wandb_run_name	None
+[2025-10-04 06:40:01,365] wandb_tags	[]
+[2025-10-04 06:40:01,365] weight_decay	0.0005
+[2025-10-04 06:40:01,365] shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01
+[2025-10-04 06:40:01,368] Saved run configuration to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/config_used.yaml
+[2025-10-04 06:40:01,895] git root error: Cmd('git') failed due to: exit code(128)
+  cmdline: git rev-parse --show-toplevel
+  stderr: 'fatal: detected dubious ownership in repository at '/workspace'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /workspace'
+[2025-10-04 06:40:01,899] git root error: Cmd('git') failed due to: exit code(128)
+  cmdline: git rev-parse --show-toplevel
+  stderr: 'fatal: detected dubious ownership in repository at '/workspace'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /workspace'
+[34m[1mwandb[0m: Currently logged in as: [33msolhee0912[0m ([33msolhee0912-kookmin-university[0m). Use [1m`wandb login --relogin`[0m to force relogin
+[34m[1mwandb[0m: wandb version 0.22.1 is available!  To upgrade, please run:
+[34m[1mwandb[0m:  $ pip install wandb --upgrade
+[34m[1mwandb[0m: Tracking run with wandb version 0.16.6
+[34m[1mwandb[0m: Run data is saved locally in [35m[1m/workspace/wandb/run-20251004_064003-dccdklha[0m
+[34m[1mwandb[0m: Run [1m`wandb offline`[0m to turn off syncing.
+[34m[1mwandb[0m: Syncing run [33mshanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01[0m
+[34m[1mwandb[0m: ⭐️ View project at [34m[4mhttps://wandb.ai/solhee0912-kookmin-university/vad[0m
+[34m[1mwandb[0m: 🚀 View run at [34m[4mhttps://wandb.ai/solhee0912-kookmin-university/vad/runs/dccdklha[0m
+[2025-10-04 06:40:05,447] tp: 47/0.73, tn: 158/0.91, fp: 17, fn: 16
+[2025-10-04 06:40:05,597] dataset [shanghaitech] was created
+[2025-10-04 06:40:06,307] Memory module built with 17 high-confidence normal videos.
+[2025-10-04 06:40:06,781] Epoch: [1/300], sample_num: 6720, loss_cls: 0.2925.
+[2025-10-04 06:40:09,096] Testing: pr@ 9.72%, auc@ 69.12% 	
+[2025-10-04 06:40:09,118] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:09,149] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:09,149] best_AUC 69.12 at epoch 1.	 best_PR 9.72 at epoch 1.
+[2025-10-04 06:40:09,149] ============================
+[2025-10-04 06:40:09,231] Epoch: [2/300], sample_num: 6720, loss_cls: 0.1930.
+[2025-10-04 06:40:09,764] Testing: pr@ 10.92%, auc@ 73.24% 	
+[2025-10-04 06:40:09,803] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:09,849] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:09,850] best_AUC 73.24 at epoch 2.	 best_PR 10.92 at epoch 2.
+[2025-10-04 06:40:09,850] ============================
+[2025-10-04 06:40:09,933] Epoch: [3/300], sample_num: 6720, loss_cls: 0.2126.
+[2025-10-04 06:40:10,477] Testing: pr@ 14.03%, auc@ 75.34% 	
+[2025-10-04 06:40:10,539] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:10,614] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:10,615] best_AUC 75.34 at epoch 3.	 best_PR 14.03 at epoch 3.
+[2025-10-04 06:40:10,615] ============================
+[2025-10-04 06:40:10,691] Epoch: [4/300], sample_num: 6720, loss_cls: 0.1837.
+[2025-10-04 06:40:11,220] Testing: pr@ 16.55%, auc@ 76.77% 	
+[2025-10-04 06:40:11,270] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:11,342] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:11,343] best_AUC 76.77 at epoch 4.	 best_PR 16.55 at epoch 4.
+[2025-10-04 06:40:11,343] ============================
+[2025-10-04 06:40:11,418] Epoch: [5/300], sample_num: 6720, loss_cls: 0.1834.
+[2025-10-04 06:40:11,942] Testing: pr@ 16.05%, auc@ 73.66% 	
+[2025-10-04 06:40:11,944] best_AUC 76.77 at epoch 4.	 best_PR 16.55 at epoch 4.
+[2025-10-04 06:40:11,944] ============================
+[2025-10-04 06:40:12,015] Epoch: [6/300], sample_num: 6720, loss_cls: 0.1719.
+[2025-10-04 06:40:12,541] Testing: pr@ 18.03%, auc@ 76.73% 	
+[2025-10-04 06:40:12,611] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:12,612] best_AUC 76.77 at epoch 4.	 best_PR 18.03 at epoch 6.
+[2025-10-04 06:40:12,612] ============================
+[2025-10-04 06:40:12,684] Epoch: [7/300], sample_num: 6720, loss_cls: 0.1714.
+[2025-10-04 06:40:13,213] Testing: pr@ 20.25%, auc@ 79.68% 	
+[2025-10-04 06:40:13,263] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:13,330] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:13,331] best_AUC 79.68 at epoch 7.	 best_PR 20.25 at epoch 7.
+[2025-10-04 06:40:13,331] ============================
+[2025-10-04 06:40:13,407] Epoch: [8/300], sample_num: 6720, loss_cls: 0.1696.
+[2025-10-04 06:40:13,937] Testing: pr@ 21.51%, auc@ 80.70% 	
+[2025-10-04 06:40:13,990] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:14,052] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:14,053] best_AUC 80.70 at epoch 8.	 best_PR 21.51 at epoch 8.
+[2025-10-04 06:40:14,053] ============================
+[2025-10-04 06:40:14,126] Epoch: [9/300], sample_num: 6720, loss_cls: 0.1730.
+[2025-10-04 06:40:14,661] Testing: pr@ 22.41%, auc@ 79.85% 	
+[2025-10-04 06:40:14,735] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:14,735] best_AUC 80.70 at epoch 8.	 best_PR 22.41 at epoch 9.
+[2025-10-04 06:40:14,735] ============================
+[2025-10-04 06:40:14,810] Epoch: [10/300], sample_num: 6720, loss_cls: 0.1712.
+[2025-10-04 06:40:15,350] Testing: pr@ 23.98%, auc@ 81.40% 	
+[2025-10-04 06:40:15,400] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:15,465] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:15,465] best_AUC 81.40 at epoch 10.	 best_PR 23.98 at epoch 10.
+[2025-10-04 06:40:15,465] ============================
+[2025-10-04 06:40:15,540] Epoch: [11/300], sample_num: 6720, loss_cls: 0.1587.
+[2025-10-04 06:40:16,076] Testing: pr@ 24.62%, auc@ 81.94% 	
+[2025-10-04 06:40:16,128] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:16,199] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:16,199] best_AUC 81.94 at epoch 11.	 best_PR 24.62 at epoch 11.
+[2025-10-04 06:40:16,200] ============================
+[2025-10-04 06:40:16,272] Epoch: [12/300], sample_num: 6720, loss_cls: 0.1612.
+[2025-10-04 06:40:16,809] Testing: pr@ 24.82%, auc@ 81.72% 	
+[2025-10-04 06:40:16,877] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:16,878] best_AUC 81.94 at epoch 11.	 best_PR 24.82 at epoch 12.
+[2025-10-04 06:40:16,878] ============================
+[2025-10-04 06:40:16,950] Epoch: [13/300], sample_num: 6720, loss_cls: 0.1604.
+[2025-10-04 06:40:17,488] Testing: pr@ 23.37%, auc@ 79.66% 	
+[2025-10-04 06:40:17,511] best_AUC 81.94 at epoch 11.	 best_PR 24.82 at epoch 12.
+[2025-10-04 06:40:17,512] ============================
+[2025-10-04 06:40:17,585] Epoch: [14/300], sample_num: 6720, loss_cls: 0.1570.
+[2025-10-04 06:40:18,118] Testing: pr@ 25.92%, auc@ 82.05% 	
+[2025-10-04 06:40:18,168] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:18,231] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:18,231] best_AUC 82.05 at epoch 14.	 best_PR 25.92 at epoch 14.
+[2025-10-04 06:40:18,232] ============================
+[2025-10-04 06:40:18,358] Epoch: [15/300], sample_num: 6720, loss_cls: 0.1529.
+[2025-10-04 06:40:18,897] Testing: pr@ 26.65%, auc@ 82.83% 	
+[2025-10-04 06:40:18,949] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:19,016] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:19,017] best_AUC 82.83 at epoch 15.	 best_PR 26.65 at epoch 15.
+[2025-10-04 06:40:19,017] ============================
+[2025-10-04 06:40:19,095] Epoch: [16/300], sample_num: 6720, loss_cls: 0.1401.
+[2025-10-04 06:40:19,647] Testing: pr@ 25.98%, auc@ 81.40% 	
+[2025-10-04 06:40:19,669] best_AUC 82.83 at epoch 15.	 best_PR 26.65 at epoch 15.
+[2025-10-04 06:40:19,670] ============================
+[2025-10-04 06:40:19,765] Epoch: [17/300], sample_num: 6720, loss_cls: 0.1592.
+[2025-10-04 06:40:20,296] Testing: pr@ 26.81%, auc@ 82.45% 	
+[2025-10-04 06:40:20,355] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:20,356] best_AUC 82.83 at epoch 15.	 best_PR 26.81 at epoch 17.
+[2025-10-04 06:40:20,356] ============================
+[2025-10-04 06:40:20,431] Epoch: [18/300], sample_num: 6720, loss_cls: 0.1616.
+[2025-10-04 06:40:20,965] Testing: pr@ 26.87%, auc@ 82.45% 	
+[2025-10-04 06:40:21,029] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:21,030] best_AUC 82.83 at epoch 15.	 best_PR 26.87 at epoch 18.
+[2025-10-04 06:40:21,030] ============================
+[2025-10-04 06:40:21,105] Epoch: [19/300], sample_num: 6720, loss_cls: 0.1489.
+[2025-10-04 06:40:21,624] Testing: pr@ 27.43%, auc@ 83.05% 	
+[2025-10-04 06:40:21,676] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:21,738] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:21,738] best_AUC 83.05 at epoch 19.	 best_PR 27.43 at epoch 19.
+[2025-10-04 06:40:21,738] ============================
+[2025-10-04 06:40:21,813] Epoch: [20/300], sample_num: 6720, loss_cls: 0.1548.
+[2025-10-04 06:40:22,312] Testing: pr@ 25.98%, auc@ 81.00% 	
+[2025-10-04 06:40:22,330] best_AUC 83.05 at epoch 19.	 best_PR 27.43 at epoch 19.
+[2025-10-04 06:40:22,330] ============================
+[2025-10-04 06:40:22,399] Epoch: [21/300], sample_num: 6720, loss_cls: 0.1563.
+[2025-10-04 06:40:22,846] Testing: pr@ 28.48%, auc@ 83.42% 	
+[2025-10-04 06:40:22,891] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:22,966] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:22,967] best_AUC 83.42 at epoch 21.	 best_PR 28.48 at epoch 21.
+[2025-10-04 06:40:22,967] ============================
+[2025-10-04 06:40:23,040] Epoch: [22/300], sample_num: 6720, loss_cls: 0.1517.
+[2025-10-04 06:40:23,584] Testing: pr@ 29.56%, auc@ 84.07% 	
+[2025-10-04 06:40:23,636] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:23,692] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:23,693] best_AUC 84.07 at epoch 22.	 best_PR 29.56 at epoch 22.
+[2025-10-04 06:40:23,693] ============================
+[2025-10-04 06:40:23,764] Epoch: [23/300], sample_num: 6720, loss_cls: 0.1544.
+[2025-10-04 06:40:24,295] Testing: pr@ 30.45%, auc@ 84.13% 	
+[2025-10-04 06:40:24,345] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:24,413] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:24,414] best_AUC 84.13 at epoch 23.	 best_PR 30.45 at epoch 23.
+[2025-10-04 06:40:24,414] ============================
+[2025-10-04 06:40:24,491] Epoch: [24/300], sample_num: 6720, loss_cls: 0.1505.
+[2025-10-04 06:40:25,022] Testing: pr@ 30.85%, auc@ 84.36% 	
+[2025-10-04 06:40:25,074] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:25,146] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:25,147] best_AUC 84.36 at epoch 24.	 best_PR 30.85 at epoch 24.
+[2025-10-04 06:40:25,147] ============================
+[2025-10-04 06:40:25,220] Epoch: [25/300], sample_num: 6720, loss_cls: 0.1495.
+[2025-10-04 06:40:25,756] Testing: pr@ 31.02%, auc@ 84.39% 	
+[2025-10-04 06:40:25,811] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:25,892] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:25,893] best_AUC 84.39 at epoch 25.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:25,893] ============================
+[2025-10-04 06:40:25,973] Epoch: [26/300], sample_num: 6720, loss_cls: 0.1572.
+[2025-10-04 06:40:26,508] Testing: pr@ 30.09%, auc@ 83.73% 	
+[2025-10-04 06:40:26,530] best_AUC 84.39 at epoch 25.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:26,531] ============================
+[2025-10-04 06:40:26,603] Epoch: [27/300], sample_num: 6720, loss_cls: 0.1484.
+[2025-10-04 06:40:27,124] Testing: pr@ 30.37%, auc@ 84.34% 	
+[2025-10-04 06:40:27,147] best_AUC 84.39 at epoch 25.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:27,147] ============================
+[2025-10-04 06:40:27,226] Epoch: [28/300], sample_num: 6720, loss_cls: 0.1463.
+[2025-10-04 06:40:27,669] Testing: pr@ 30.80%, auc@ 84.26% 	
+[2025-10-04 06:40:27,683] best_AUC 84.39 at epoch 25.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:27,684] ============================
+[2025-10-04 06:40:27,740] Epoch: [29/300], sample_num: 6720, loss_cls: 0.1464.
+[2025-10-04 06:40:28,105] Testing: pr@ 30.87%, auc@ 84.94% 	
+[2025-10-04 06:40:28,137] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:28,154] best_AUC 84.94 at epoch 29.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:28,154] ============================
+[2025-10-04 06:40:28,208] Epoch: [30/300], sample_num: 6720, loss_cls: 0.1433.
+[2025-10-04 06:40:28,577] Testing: pr@ 28.88%, auc@ 83.70% 	
+[2025-10-04 06:40:28,592] best_AUC 84.94 at epoch 29.	 best_PR 31.02 at epoch 25.
+[2025-10-04 06:40:28,592] ============================
+[2025-10-04 06:40:28,643] Epoch: [31/300], sample_num: 6720, loss_cls: 0.1443.
+[2025-10-04 06:40:29,010] Testing: pr@ 32.15%, auc@ 85.46% 	
+[2025-10-04 06:40:29,043] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:29,104] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:29,105] best_AUC 85.46 at epoch 31.	 best_PR 32.15 at epoch 31.
+[2025-10-04 06:40:29,105] ============================
+[2025-10-04 06:40:29,163] Epoch: [32/300], sample_num: 6720, loss_cls: 0.1314.
+[2025-10-04 06:40:29,532] Testing: pr@ 32.34%, auc@ 85.54% 	
+[2025-10-04 06:40:29,564] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:29,621] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:29,622] best_AUC 85.54 at epoch 32.	 best_PR 32.34 at epoch 32.
+[2025-10-04 06:40:29,622] ============================
+[2025-10-04 06:40:29,676] Epoch: [33/300], sample_num: 6720, loss_cls: 0.1414.
+[2025-10-04 06:40:30,044] Testing: pr@ 29.94%, auc@ 83.95% 	
+[2025-10-04 06:40:30,059] best_AUC 85.54 at epoch 32.	 best_PR 32.34 at epoch 32.
+[2025-10-04 06:40:30,059] ============================
+[2025-10-04 06:40:30,123] Epoch: [34/300], sample_num: 6720, loss_cls: 0.1429.
+[2025-10-04 06:40:30,491] Testing: pr@ 31.92%, auc@ 85.30% 	
+[2025-10-04 06:40:30,506] best_AUC 85.54 at epoch 32.	 best_PR 32.34 at epoch 32.
+[2025-10-04 06:40:30,507] ============================
+[2025-10-04 06:40:30,561] Epoch: [35/300], sample_num: 6720, loss_cls: 0.1323.
+[2025-10-04 06:40:30,926] Testing: pr@ 32.56%, auc@ 85.54% 	
+[2025-10-04 06:40:30,962] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:31,019] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:31,020] best_AUC 85.54 at epoch 35.	 best_PR 32.56 at epoch 35.
+[2025-10-04 06:40:31,020] ============================
+[2025-10-04 06:40:31,083] Epoch: [36/300], sample_num: 6720, loss_cls: 0.1303.
+[2025-10-04 06:40:31,481] Testing: pr@ 31.59%, auc@ 85.03% 	
+[2025-10-04 06:40:31,495] best_AUC 85.54 at epoch 35.	 best_PR 32.56 at epoch 35.
+[2025-10-04 06:40:31,496] ============================
+[2025-10-04 06:40:31,547] Epoch: [37/300], sample_num: 6720, loss_cls: 0.1392.
+[2025-10-04 06:40:31,915] Testing: pr@ 32.68%, auc@ 85.55% 	
+[2025-10-04 06:40:31,951] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:32,012] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:32,013] best_AUC 85.55 at epoch 37.	 best_PR 32.68 at epoch 37.
+[2025-10-04 06:40:32,013] ============================
+[2025-10-04 06:40:32,074] Epoch: [38/300], sample_num: 6720, loss_cls: 0.1440.
+[2025-10-04 06:40:32,448] Testing: pr@ 31.82%, auc@ 85.62% 	
+[2025-10-04 06:40:32,478] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:32,493] best_AUC 85.62 at epoch 38.	 best_PR 32.68 at epoch 37.
+[2025-10-04 06:40:32,493] ============================
+[2025-10-04 06:40:32,550] Epoch: [39/300], sample_num: 6720, loss_cls: 0.1443.
+[2025-10-04 06:40:32,915] Testing: pr@ 31.80%, auc@ 85.48% 	
+[2025-10-04 06:40:32,930] best_AUC 85.62 at epoch 38.	 best_PR 32.68 at epoch 37.
+[2025-10-04 06:40:32,930] ============================
+[2025-10-04 06:40:32,982] Epoch: [40/300], sample_num: 6720, loss_cls: 0.1286.
+[2025-10-04 06:40:33,344] Testing: pr@ 34.06%, auc@ 86.49% 	
+[2025-10-04 06:40:33,375] Saved new best AUC checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_auc.pkl
+[2025-10-04 06:40:33,430] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:33,430] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:33,430] ============================
+[2025-10-04 06:40:33,492] Epoch: [41/300], sample_num: 6720, loss_cls: 0.1376.
+[2025-10-04 06:40:33,861] Testing: pr@ 29.66%, auc@ 84.25% 	
+[2025-10-04 06:40:33,877] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:33,877] ============================
+[2025-10-04 06:40:33,928] Epoch: [42/300], sample_num: 6720, loss_cls: 0.1349.
+[2025-10-04 06:40:34,293] Testing: pr@ 32.46%, auc@ 85.79% 	
+[2025-10-04 06:40:34,308] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:34,308] ============================
+[2025-10-04 06:40:34,364] Epoch: [43/300], sample_num: 6720, loss_cls: 0.1348.
+[2025-10-04 06:40:34,733] Testing: pr@ 32.21%, auc@ 85.44% 	
+[2025-10-04 06:40:34,748] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:34,748] ============================
+[2025-10-04 06:40:34,798] Epoch: [44/300], sample_num: 6720, loss_cls: 0.1336.
+[2025-10-04 06:40:35,175] Testing: pr@ 30.96%, auc@ 84.32% 	
+[2025-10-04 06:40:35,195] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:35,196] ============================
+[2025-10-04 06:40:35,258] Epoch: [45/300], sample_num: 6720, loss_cls: 0.1348.
+[2025-10-04 06:40:35,624] Testing: pr@ 31.52%, auc@ 85.14% 	
+[2025-10-04 06:40:35,639] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:35,640] ============================
+[2025-10-04 06:40:35,690] Epoch: [46/300], sample_num: 6720, loss_cls: 0.1352.
+[2025-10-04 06:40:36,058] Testing: pr@ 32.13%, auc@ 85.28% 	
+[2025-10-04 06:40:36,073] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:36,073] ============================
+[2025-10-04 06:40:36,123] Epoch: [47/300], sample_num: 6720, loss_cls: 0.1356.
+[2025-10-04 06:40:36,491] Testing: pr@ 32.31%, auc@ 85.58% 	
+[2025-10-04 06:40:36,506] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:36,507] ============================
+[2025-10-04 06:40:36,557] Epoch: [48/300], sample_num: 6720, loss_cls: 0.1328.
+[2025-10-04 06:40:36,922] Testing: pr@ 31.33%, auc@ 84.87% 	
+[2025-10-04 06:40:36,936] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:36,937] ============================
+[2025-10-04 06:40:36,988] Epoch: [49/300], sample_num: 6720, loss_cls: 0.1318.
+[2025-10-04 06:40:37,359] Testing: pr@ 30.76%, auc@ 84.77% 	
+[2025-10-04 06:40:37,374] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:37,375] ============================
+[2025-10-04 06:40:37,438] Epoch: [50/300], sample_num: 6720, loss_cls: 0.1252.
+[2025-10-04 06:40:37,805] Testing: pr@ 31.30%, auc@ 84.96% 	
+[2025-10-04 06:40:37,820] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:37,820] ============================
+[2025-10-04 06:40:37,870] Epoch: [51/300], sample_num: 6720, loss_cls: 0.1486.
+[2025-10-04 06:40:38,240] Testing: pr@ 31.14%, auc@ 84.72% 	
+[2025-10-04 06:40:38,254] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:38,254] ============================
+[2025-10-04 06:40:38,311] Epoch: [52/300], sample_num: 6720, loss_cls: 0.1366.
+[2025-10-04 06:40:38,675] Testing: pr@ 31.06%, auc@ 84.77% 	
+[2025-10-04 06:40:38,699] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:38,699] ============================
+[2025-10-04 06:40:38,764] Epoch: [53/300], sample_num: 6720, loss_cls: 0.1327.
+[2025-10-04 06:40:39,140] Testing: pr@ 31.34%, auc@ 85.27% 	
+[2025-10-04 06:40:39,155] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:39,155] ============================
+[2025-10-04 06:40:39,205] Epoch: [54/300], sample_num: 6720, loss_cls: 0.1350.
+[2025-10-04 06:40:39,568] Testing: pr@ 29.87%, auc@ 84.32% 	
+[2025-10-04 06:40:39,583] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:39,583] ============================
+[2025-10-04 06:40:39,634] Epoch: [55/300], sample_num: 6720, loss_cls: 0.1280.
+[2025-10-04 06:40:40,000] Testing: pr@ 32.86%, auc@ 86.05% 	
+[2025-10-04 06:40:40,015] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:40,015] ============================
+[2025-10-04 06:40:40,068] Epoch: [56/300], sample_num: 6720, loss_cls: 0.1294.
+[2025-10-04 06:40:40,433] Testing: pr@ 31.07%, auc@ 85.05% 	
+[2025-10-04 06:40:40,448] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:40,448] ============================
+[2025-10-04 06:40:40,500] Epoch: [57/300], sample_num: 6720, loss_cls: 0.1322.
+[2025-10-04 06:40:40,865] Testing: pr@ 30.19%, auc@ 85.04% 	
+[2025-10-04 06:40:40,880] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:40,880] ============================
+[2025-10-04 06:40:40,940] Epoch: [58/300], sample_num: 6720, loss_cls: 0.1201.
+[2025-10-04 06:40:41,320] Testing: pr@ 32.33%, auc@ 85.84% 	
+[2025-10-04 06:40:41,340] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:41,340] ============================
+[2025-10-04 06:40:41,393] Epoch: [59/300], sample_num: 6720, loss_cls: 0.1270.
+[2025-10-04 06:40:41,757] Testing: pr@ 31.44%, auc@ 85.28% 	
+[2025-10-04 06:40:41,771] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:41,771] ============================
+[2025-10-04 06:40:41,822] Epoch: [60/300], sample_num: 6720, loss_cls: 0.1370.
+[2025-10-04 06:40:42,185] Testing: pr@ 30.42%, auc@ 85.27% 	
+[2025-10-04 06:40:42,201] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:42,201] ============================
+[2025-10-04 06:40:42,253] Epoch: [61/300], sample_num: 6720, loss_cls: 0.1362.
+[2025-10-04 06:40:42,616] Testing: pr@ 29.80%, auc@ 84.79% 	
+[2025-10-04 06:40:42,631] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:42,632] ============================
+[2025-10-04 06:40:42,683] Epoch: [62/300], sample_num: 6720, loss_cls: 0.1281.
+[2025-10-04 06:40:43,049] Testing: pr@ 29.53%, auc@ 84.87% 	
+[2025-10-04 06:40:43,064] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:43,064] ============================
+[2025-10-04 06:40:43,117] Epoch: [63/300], sample_num: 6720, loss_cls: 0.1272.
+[2025-10-04 06:40:43,488] Testing: pr@ 29.11%, auc@ 84.44% 	
+[2025-10-04 06:40:43,502] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:43,503] ============================
+[2025-10-04 06:40:43,553] Epoch: [64/300], sample_num: 6720, loss_cls: 0.1282.
+[2025-10-04 06:40:43,933] Testing: pr@ 29.96%, auc@ 84.20% 	
+[2025-10-04 06:40:43,948] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:43,948] ============================
+[2025-10-04 06:40:44,005] Epoch: [65/300], sample_num: 6720, loss_cls: 0.1314.
+[2025-10-04 06:40:44,383] Testing: pr@ 29.29%, auc@ 84.25% 	
+[2025-10-04 06:40:44,398] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:44,398] ============================
+[2025-10-04 06:40:44,450] Epoch: [66/300], sample_num: 6720, loss_cls: 0.1202.
+[2025-10-04 06:40:44,816] Testing: pr@ 31.06%, auc@ 85.19% 	
+[2025-10-04 06:40:44,831] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:44,831] ============================
+[2025-10-04 06:40:44,921] Epoch: [67/300], sample_num: 6720, loss_cls: 0.1131.
+[2025-10-04 06:40:45,359] Testing: pr@ 32.21%, auc@ 85.69% 	
+[2025-10-04 06:40:45,378] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:45,378] ============================
+[2025-10-04 06:40:45,441] Epoch: [68/300], sample_num: 6720, loss_cls: 0.1188.
+[2025-10-04 06:40:45,888] Testing: pr@ 29.89%, auc@ 85.16% 	
+[2025-10-04 06:40:45,908] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:45,909] ============================
+[2025-10-04 06:40:45,970] Epoch: [69/300], sample_num: 6720, loss_cls: 0.1281.
+[2025-10-04 06:40:46,412] Testing: pr@ 31.90%, auc@ 85.77% 	
+[2025-10-04 06:40:46,432] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:46,433] ============================
+[2025-10-04 06:40:46,488] Epoch: [70/300], sample_num: 6720, loss_cls: 0.1179.
+[2025-10-04 06:40:46,927] Testing: pr@ 31.70%, auc@ 85.35% 	
+[2025-10-04 06:40:46,948] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:46,949] ============================
+[2025-10-04 06:40:47,015] Epoch: [71/300], sample_num: 6720, loss_cls: 0.1192.
+[2025-10-04 06:40:47,454] Testing: pr@ 31.55%, auc@ 85.87% 	
+[2025-10-04 06:40:47,473] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:47,473] ============================
+[2025-10-04 06:40:47,535] Epoch: [72/300], sample_num: 6720, loss_cls: 0.1201.
+[2025-10-04 06:40:47,977] Testing: pr@ 33.48%, auc@ 86.06% 	
+[2025-10-04 06:40:47,996] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:47,996] ============================
+[2025-10-04 06:40:48,059] Epoch: [73/300], sample_num: 6720, loss_cls: 0.1239.
+[2025-10-04 06:40:48,503] Testing: pr@ 31.11%, auc@ 85.27% 	
+[2025-10-04 06:40:48,522] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:48,522] ============================
+[2025-10-04 06:40:48,582] Epoch: [74/300], sample_num: 6720, loss_cls: 0.1224.
+[2025-10-04 06:40:48,970] Testing: pr@ 32.11%, auc@ 86.07% 	
+[2025-10-04 06:40:48,985] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:48,985] ============================
+[2025-10-04 06:40:49,056] Epoch: [75/300], sample_num: 6720, loss_cls: 0.1176.
+[2025-10-04 06:40:49,450] Testing: pr@ 31.09%, auc@ 85.08% 	
+[2025-10-04 06:40:49,465] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:49,465] ============================
+[2025-10-04 06:40:49,521] Epoch: [76/300], sample_num: 6720, loss_cls: 0.1177.
+[2025-10-04 06:40:49,896] Testing: pr@ 31.26%, auc@ 85.25% 	
+[2025-10-04 06:40:49,911] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:49,911] ============================
+[2025-10-04 06:40:49,965] Epoch: [77/300], sample_num: 6720, loss_cls: 0.1162.
+[2025-10-04 06:40:50,336] Testing: pr@ 30.66%, auc@ 85.36% 	
+[2025-10-04 06:40:50,351] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:50,352] ============================
+[2025-10-04 06:40:50,402] Epoch: [78/300], sample_num: 6720, loss_cls: 0.1207.
+[2025-10-04 06:40:50,766] Testing: pr@ 31.14%, auc@ 85.57% 	
+[2025-10-04 06:40:50,782] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:50,782] ============================
+[2025-10-04 06:40:50,833] Epoch: [79/300], sample_num: 6720, loss_cls: 0.1162.
+[2025-10-04 06:40:51,202] Testing: pr@ 31.83%, auc@ 85.55% 	
+[2025-10-04 06:40:51,217] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:51,218] ============================
+[2025-10-04 06:40:51,270] Epoch: [80/300], sample_num: 6720, loss_cls: 0.1215.
+[2025-10-04 06:40:51,641] Testing: pr@ 31.69%, auc@ 86.07% 	
+[2025-10-04 06:40:51,658] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:51,658] ============================
+[2025-10-04 06:40:51,716] Epoch: [81/300], sample_num: 6720, loss_cls: 0.1245.
+[2025-10-04 06:40:52,099] Testing: pr@ 31.58%, auc@ 85.24% 	
+[2025-10-04 06:40:52,114] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:52,114] ============================
+[2025-10-04 06:40:52,169] Epoch: [82/300], sample_num: 6720, loss_cls: 0.1120.
+[2025-10-04 06:40:52,540] Testing: pr@ 33.63%, auc@ 86.19% 	
+[2025-10-04 06:40:52,555] best_AUC 86.49 at epoch 40.	 best_PR 34.06 at epoch 40.
+[2025-10-04 06:40:52,555] ============================
+[2025-10-04 06:40:52,606] Epoch: [83/300], sample_num: 6720, loss_cls: 0.1118.
+[2025-10-04 06:40:52,981] Testing: pr@ 34.17%, auc@ 86.46% 	
+[2025-10-04 06:40:53,032] Saved new best PR checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/best_pr.pkl
+[2025-10-04 06:40:53,032] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:53,033] ============================
+[2025-10-04 06:40:53,101] Epoch: [84/300], sample_num: 6720, loss_cls: 0.1074.
+[2025-10-04 06:40:53,468] Testing: pr@ 31.66%, auc@ 85.30% 	
+[2025-10-04 06:40:53,482] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:53,482] ============================
+[2025-10-04 06:40:53,540] Epoch: [85/300], sample_num: 6720, loss_cls: 0.1095.
+[2025-10-04 06:40:53,910] Testing: pr@ 32.46%, auc@ 86.10% 	
+[2025-10-04 06:40:53,925] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:53,925] ============================
+[2025-10-04 06:40:53,989] Epoch: [86/300], sample_num: 6720, loss_cls: 0.1153.
+[2025-10-04 06:40:54,358] Testing: pr@ 30.26%, auc@ 84.91% 	
+[2025-10-04 06:40:54,373] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:54,373] ============================
+[2025-10-04 06:40:54,431] Epoch: [87/300], sample_num: 6720, loss_cls: 0.1101.
+[2025-10-04 06:40:54,809] Testing: pr@ 31.92%, auc@ 85.43% 	
+[2025-10-04 06:40:54,829] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:54,829] ============================
+[2025-10-04 06:40:54,895] Epoch: [88/300], sample_num: 6720, loss_cls: 0.1083.
+[2025-10-04 06:40:55,281] Testing: pr@ 29.13%, auc@ 84.89% 	
+[2025-10-04 06:40:55,296] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:55,296] ============================
+[2025-10-04 06:40:55,351] Epoch: [89/300], sample_num: 6720, loss_cls: 0.1202.
+[2025-10-04 06:40:55,818] Testing: pr@ 32.54%, auc@ 85.66% 	
+[2025-10-04 06:40:55,837] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:55,837] ============================
+[2025-10-04 06:40:55,899] Epoch: [90/300], sample_num: 6720, loss_cls: 0.1174.
+[2025-10-04 06:40:56,365] Testing: pr@ 31.73%, auc@ 86.01% 	
+[2025-10-04 06:40:56,383] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:56,383] ============================
+[2025-10-04 06:40:56,437] Epoch: [91/300], sample_num: 6720, loss_cls: 0.1122.
+[2025-10-04 06:40:56,892] Testing: pr@ 29.63%, auc@ 84.27% 	
+[2025-10-04 06:40:56,917] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:56,917] ============================
+[2025-10-04 06:40:56,981] Epoch: [92/300], sample_num: 6720, loss_cls: 0.1083.
+[2025-10-04 06:40:57,423] Testing: pr@ 31.28%, auc@ 85.27% 	
+[2025-10-04 06:40:57,442] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:57,442] ============================
+[2025-10-04 06:40:57,499] Epoch: [93/300], sample_num: 6720, loss_cls: 0.1121.
+[2025-10-04 06:40:57,948] Testing: pr@ 31.24%, auc@ 85.45% 	
+[2025-10-04 06:40:57,967] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:57,967] ============================
+[2025-10-04 06:40:58,022] Epoch: [94/300], sample_num: 6720, loss_cls: 0.1057.
+[2025-10-04 06:40:58,479] Testing: pr@ 32.84%, auc@ 85.64% 	
+[2025-10-04 06:40:58,505] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:58,505] ============================
+[2025-10-04 06:40:58,574] Epoch: [95/300], sample_num: 6720, loss_cls: 0.1181.
+[2025-10-04 06:40:59,013] Testing: pr@ 31.69%, auc@ 85.67% 	
+[2025-10-04 06:40:59,032] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:59,032] ============================
+[2025-10-04 06:40:59,094] Epoch: [96/300], sample_num: 6720, loss_cls: 0.1077.
+[2025-10-04 06:40:59,544] Testing: pr@ 28.46%, auc@ 84.37% 	
+[2025-10-04 06:40:59,564] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:40:59,564] ============================
+[2025-10-04 06:40:59,619] Epoch: [97/300], sample_num: 6720, loss_cls: 0.1076.
+[2025-10-04 06:41:00,059] Testing: pr@ 30.26%, auc@ 85.15% 	
+[2025-10-04 06:41:00,078] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:00,078] ============================
+[2025-10-04 06:41:00,132] Epoch: [98/300], sample_num: 6720, loss_cls: 0.1126.
+[2025-10-04 06:41:00,578] Testing: pr@ 31.91%, auc@ 85.54% 	
+[2025-10-04 06:41:00,597] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:00,598] ============================
+[2025-10-04 06:41:00,652] Epoch: [99/300], sample_num: 6720, loss_cls: 0.1074.
+[2025-10-04 06:41:01,068] Testing: pr@ 30.23%, auc@ 84.62% 	
+[2025-10-04 06:41:01,083] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:01,083] ============================
+[2025-10-04 06:41:01,155] Epoch: [100/300], sample_num: 6720, loss_cls: 0.1092.
+[2025-10-04 06:41:01,529] Testing: pr@ 29.62%, auc@ 85.02% 	
+[2025-10-04 06:41:01,544] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:01,545] ============================
+[2025-10-04 06:41:01,596] Epoch: [101/300], sample_num: 6720, loss_cls: 0.1116.
+[2025-10-04 06:41:01,959] Testing: pr@ 31.36%, auc@ 85.21% 	
+[2025-10-04 06:41:01,974] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:01,975] ============================
+[2025-10-04 06:41:02,025] Epoch: [102/300], sample_num: 6720, loss_cls: 0.1071.
+[2025-10-04 06:41:02,388] Testing: pr@ 30.27%, auc@ 85.07% 	
+[2025-10-04 06:41:02,403] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:02,403] ============================
+[2025-10-04 06:41:02,455] Epoch: [103/300], sample_num: 6720, loss_cls: 0.1122.
+[2025-10-04 06:41:02,823] Testing: pr@ 30.19%, auc@ 84.75% 	
+[2025-10-04 06:41:02,838] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:02,839] ============================
+[2025-10-04 06:41:02,890] Epoch: [104/300], sample_num: 6720, loss_cls: 0.1110.
+[2025-10-04 06:41:03,252] Testing: pr@ 31.93%, auc@ 85.96% 	
+[2025-10-04 06:41:03,267] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:03,267] ============================
+[2025-10-04 06:41:03,326] Epoch: [105/300], sample_num: 6720, loss_cls: 0.1119.
+[2025-10-04 06:41:03,691] Testing: pr@ 31.69%, auc@ 85.61% 	
+[2025-10-04 06:41:03,707] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:03,707] ============================
+[2025-10-04 06:41:03,758] Epoch: [106/300], sample_num: 6720, loss_cls: 0.1039.
+[2025-10-04 06:41:04,120] Testing: pr@ 30.07%, auc@ 84.77% 	
+[2025-10-04 06:41:04,135] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:04,135] ============================
+[2025-10-04 06:41:04,185] Epoch: [107/300], sample_num: 6720, loss_cls: 0.1055.
+[2025-10-04 06:41:04,546] Testing: pr@ 30.64%, auc@ 85.20% 	
+[2025-10-04 06:41:04,562] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:04,562] ============================
+[2025-10-04 06:41:04,614] Epoch: [108/300], sample_num: 6720, loss_cls: 0.1026.
+[2025-10-04 06:41:04,985] Testing: pr@ 30.72%, auc@ 85.65% 	
+[2025-10-04 06:41:05,000] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:05,000] ============================
+[2025-10-04 06:41:05,050] Epoch: [109/300], sample_num: 6720, loss_cls: 0.1070.
+[2025-10-04 06:41:05,429] Testing: pr@ 30.15%, auc@ 84.56% 	
+[2025-10-04 06:41:05,444] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:05,445] ============================
+[2025-10-04 06:41:05,494] Epoch: [110/300], sample_num: 6720, loss_cls: 0.1092.
+[2025-10-04 06:41:05,871] Testing: pr@ 28.56%, auc@ 84.35% 	
+[2025-10-04 06:41:05,892] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:05,893] ============================
+[2025-10-04 06:41:05,950] Epoch: [111/300], sample_num: 6720, loss_cls: 0.1047.
+[2025-10-04 06:41:06,430] Testing: pr@ 30.53%, auc@ 85.38% 	
+[2025-10-04 06:41:06,445] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:06,445] ============================
+[2025-10-04 06:41:06,498] Epoch: [112/300], sample_num: 6720, loss_cls: 0.1059.
+[2025-10-04 06:41:06,880] Testing: pr@ 30.71%, auc@ 85.37% 	
+[2025-10-04 06:41:06,900] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:06,901] ============================
+[2025-10-04 06:41:06,962] Epoch: [113/300], sample_num: 6720, loss_cls: 0.1036.
+[2025-10-04 06:41:07,325] Testing: pr@ 30.40%, auc@ 85.46% 	
+[2025-10-04 06:41:07,341] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:07,341] ============================
+[2025-10-04 06:41:07,393] Epoch: [114/300], sample_num: 6720, loss_cls: 0.0965.
+[2025-10-04 06:41:07,757] Testing: pr@ 31.03%, auc@ 85.09% 	
+[2025-10-04 06:41:07,772] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:07,772] ============================
+[2025-10-04 06:41:07,830] Epoch: [115/300], sample_num: 6720, loss_cls: 0.0997.
+[2025-10-04 06:41:08,208] Testing: pr@ 30.77%, auc@ 85.07% 	
+[2025-10-04 06:41:08,223] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:08,224] ============================
+[2025-10-04 06:41:08,285] Epoch: [116/300], sample_num: 6720, loss_cls: 0.0999.
+[2025-10-04 06:41:08,735] Testing: pr@ 32.44%, auc@ 86.27% 	
+[2025-10-04 06:41:08,754] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:08,754] ============================
+[2025-10-04 06:41:08,823] Epoch: [117/300], sample_num: 6720, loss_cls: 0.0963.
+[2025-10-04 06:41:09,264] Testing: pr@ 30.09%, auc@ 85.52% 	
+[2025-10-04 06:41:09,282] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:09,282] ============================
+[2025-10-04 06:41:09,338] Epoch: [118/300], sample_num: 6720, loss_cls: 0.1016.
+[2025-10-04 06:41:09,773] Testing: pr@ 29.12%, auc@ 84.59% 	
+[2025-10-04 06:41:09,793] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:09,793] ============================
+[2025-10-04 06:41:09,856] Epoch: [119/300], sample_num: 6720, loss_cls: 0.1014.
+[2025-10-04 06:41:10,333] Testing: pr@ 29.49%, auc@ 85.43% 	
+[2025-10-04 06:41:10,352] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:10,352] ============================
+[2025-10-04 06:41:10,413] Epoch: [120/300], sample_num: 6720, loss_cls: 0.1152.
+[2025-10-04 06:41:10,854] Testing: pr@ 30.10%, auc@ 85.04% 	
+[2025-10-04 06:41:10,873] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:10,873] ============================
+[2025-10-04 06:41:10,928] Epoch: [121/300], sample_num: 6720, loss_cls: 0.1040.
+[2025-10-04 06:41:11,380] Testing: pr@ 30.41%, auc@ 85.57% 	
+[2025-10-04 06:41:11,406] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:11,406] ============================
+[2025-10-04 06:41:11,470] Epoch: [122/300], sample_num: 6720, loss_cls: 0.0992.
+[2025-10-04 06:41:11,908] Testing: pr@ 30.74%, auc@ 85.33% 	
+[2025-10-04 06:41:11,927] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:11,927] ============================
+[2025-10-04 06:41:11,984] Epoch: [123/300], sample_num: 6720, loss_cls: 0.0978.
+[2025-10-04 06:41:12,423] Testing: pr@ 29.29%, auc@ 84.64% 	
+[2025-10-04 06:41:12,442] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:12,442] ============================
+[2025-10-04 06:41:12,497] Epoch: [124/300], sample_num: 6720, loss_cls: 0.1059.
+[2025-10-04 06:41:12,907] Testing: pr@ 31.00%, auc@ 85.52% 	
+[2025-10-04 06:41:12,922] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:12,922] ============================
+[2025-10-04 06:41:12,971] Epoch: [125/300], sample_num: 6720, loss_cls: 0.1012.
+[2025-10-04 06:41:13,338] Testing: pr@ 28.25%, auc@ 84.17% 	
+[2025-10-04 06:41:13,353] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:13,354] ============================
+[2025-10-04 06:41:13,403] Epoch: [126/300], sample_num: 6720, loss_cls: 0.1018.
+[2025-10-04 06:41:13,766] Testing: pr@ 30.27%, auc@ 84.35% 	
+[2025-10-04 06:41:13,781] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:13,781] ============================
+[2025-10-04 06:41:13,831] Epoch: [127/300], sample_num: 6720, loss_cls: 0.1018.
+[2025-10-04 06:41:14,195] Testing: pr@ 32.55%, auc@ 85.58% 	
+[2025-10-04 06:41:14,210] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:14,210] ============================
+[2025-10-04 06:41:14,261] Epoch: [128/300], sample_num: 6720, loss_cls: 0.1017.
+[2025-10-04 06:41:14,626] Testing: pr@ 30.19%, auc@ 84.66% 	
+[2025-10-04 06:41:14,641] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:14,641] ============================
+[2025-10-04 06:41:14,695] Epoch: [129/300], sample_num: 6720, loss_cls: 0.0932.
+[2025-10-04 06:41:15,064] Testing: pr@ 29.34%, auc@ 84.62% 	
+[2025-10-04 06:41:15,079] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:15,079] ============================
+[2025-10-04 06:41:15,131] Epoch: [130/300], sample_num: 6720, loss_cls: 0.0952.
+[2025-10-04 06:41:15,500] Testing: pr@ 31.51%, auc@ 85.51% 	
+[2025-10-04 06:41:15,515] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:15,515] ============================
+[2025-10-04 06:41:15,564] Epoch: [131/300], sample_num: 6720, loss_cls: 0.0964.
+[2025-10-04 06:41:15,928] Testing: pr@ 30.90%, auc@ 85.30% 	
+[2025-10-04 06:41:15,943] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:15,943] ============================
+[2025-10-04 06:41:15,992] Epoch: [132/300], sample_num: 6720, loss_cls: 0.0986.
+[2025-10-04 06:41:16,365] Testing: pr@ 30.42%, auc@ 84.78% 	
+[2025-10-04 06:41:16,380] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:16,381] ============================
+[2025-10-04 06:41:16,431] Epoch: [133/300], sample_num: 6720, loss_cls: 0.0953.
+[2025-10-04 06:41:16,799] Testing: pr@ 28.30%, auc@ 84.37% 	
+[2025-10-04 06:41:16,814] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:16,815] ============================
+[2025-10-04 06:41:16,901] Epoch: [134/300], sample_num: 6720, loss_cls: 0.0925.
+[2025-10-04 06:41:17,269] Testing: pr@ 30.61%, auc@ 85.38% 	
+[2025-10-04 06:41:17,284] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:17,284] ============================
+[2025-10-04 06:41:17,335] Epoch: [135/300], sample_num: 6720, loss_cls: 0.0959.
+[2025-10-04 06:41:17,708] Testing: pr@ 31.20%, auc@ 85.72% 	
+[2025-10-04 06:41:17,723] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:17,724] ============================
+[2025-10-04 06:41:17,775] Epoch: [136/300], sample_num: 6720, loss_cls: 0.0902.
+[2025-10-04 06:41:18,142] Testing: pr@ 28.90%, auc@ 85.08% 	
+[2025-10-04 06:41:18,156] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:18,157] ============================
+[2025-10-04 06:41:18,212] Epoch: [137/300], sample_num: 6720, loss_cls: 0.0932.
+[2025-10-04 06:41:18,586] Testing: pr@ 30.71%, auc@ 85.47% 	
+[2025-10-04 06:41:18,607] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:18,607] ============================
+[2025-10-04 06:41:18,666] Epoch: [138/300], sample_num: 6720, loss_cls: 0.0933.
+[2025-10-04 06:41:19,080] Testing: pr@ 29.22%, auc@ 84.18% 	
+[2025-10-04 06:41:19,095] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:19,095] ============================
+[2025-10-04 06:41:19,145] Epoch: [139/300], sample_num: 6720, loss_cls: 0.0940.
+[2025-10-04 06:41:19,508] Testing: pr@ 30.56%, auc@ 85.12% 	
+[2025-10-04 06:41:19,523] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:19,523] ============================
+[2025-10-04 06:41:19,587] Epoch: [140/300], sample_num: 6720, loss_cls: 0.0958.
+[2025-10-04 06:41:20,071] Testing: pr@ 30.25%, auc@ 84.92% 	
+[2025-10-04 06:41:20,104] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:20,104] ============================
+[2025-10-04 06:41:20,161] Epoch: [141/300], sample_num: 6720, loss_cls: 0.0963.
+[2025-10-04 06:41:20,603] Testing: pr@ 29.51%, auc@ 84.47% 	
+[2025-10-04 06:41:20,622] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:20,622] ============================
+[2025-10-04 06:41:20,677] Epoch: [142/300], sample_num: 6720, loss_cls: 0.0987.
+[2025-10-04 06:41:21,120] Testing: pr@ 29.69%, auc@ 84.82% 	
+[2025-10-04 06:41:21,139] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:21,139] ============================
+[2025-10-04 06:41:21,199] Epoch: [143/300], sample_num: 6720, loss_cls: 0.0890.
+[2025-10-04 06:41:21,646] Testing: pr@ 29.00%, auc@ 84.47% 	
+[2025-10-04 06:41:21,665] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:21,665] ============================
+[2025-10-04 06:41:21,722] Epoch: [144/300], sample_num: 6720, loss_cls: 0.0919.
+[2025-10-04 06:41:22,167] Testing: pr@ 27.79%, auc@ 84.26% 	
+[2025-10-04 06:41:22,186] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:22,186] ============================
+[2025-10-04 06:41:22,244] Epoch: [145/300], sample_num: 6720, loss_cls: 0.0938.
+[2025-10-04 06:41:22,699] Testing: pr@ 29.75%, auc@ 84.48% 	
+[2025-10-04 06:41:22,718] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:22,718] ============================
+[2025-10-04 06:41:22,773] Epoch: [146/300], sample_num: 6720, loss_cls: 0.0975.
+[2025-10-04 06:41:23,186] Testing: pr@ 31.53%, auc@ 85.70% 	
+[2025-10-04 06:41:23,202] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:23,202] ============================
+[2025-10-04 06:41:23,252] Epoch: [147/300], sample_num: 6720, loss_cls: 0.0915.
+[2025-10-04 06:41:23,621] Testing: pr@ 28.55%, auc@ 84.18% 	
+[2025-10-04 06:41:23,636] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:23,636] ============================
+[2025-10-04 06:41:23,687] Epoch: [148/300], sample_num: 6720, loss_cls: 0.0908.
+[2025-10-04 06:41:24,053] Testing: pr@ 30.13%, auc@ 84.30% 	
+[2025-10-04 06:41:24,068] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:24,068] ============================
+[2025-10-04 06:41:24,118] Epoch: [149/300], sample_num: 6720, loss_cls: 0.0853.
+[2025-10-04 06:41:24,484] Testing: pr@ 29.11%, auc@ 84.13% 	
+[2025-10-04 06:41:24,500] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:24,500] ============================
+[2025-10-04 06:41:24,561] Epoch: [150/300], sample_num: 6720, loss_cls: 0.0922.
+[2025-10-04 06:41:24,938] Testing: pr@ 31.64%, auc@ 85.36% 	
+[2025-10-04 06:41:24,953] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:24,953] ============================
+[2025-10-04 06:41:25,002] Epoch: [151/300], sample_num: 6720, loss_cls: 0.0877.
+[2025-10-04 06:41:25,367] Testing: pr@ 27.74%, auc@ 84.22% 	
+[2025-10-04 06:41:25,382] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:25,382] ============================
+[2025-10-04 06:41:25,436] Epoch: [152/300], sample_num: 6720, loss_cls: 0.0874.
+[2025-10-04 06:41:25,804] Testing: pr@ 29.41%, auc@ 84.36% 	
+[2025-10-04 06:41:25,819] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:25,819] ============================
+[2025-10-04 06:41:25,872] Epoch: [153/300], sample_num: 6720, loss_cls: 0.0881.
+[2025-10-04 06:41:26,247] Testing: pr@ 30.80%, auc@ 84.93% 	
+[2025-10-04 06:41:26,262] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:26,262] ============================
+[2025-10-04 06:41:26,323] Epoch: [154/300], sample_num: 6720, loss_cls: 0.0930.
+[2025-10-04 06:41:26,694] Testing: pr@ 30.81%, auc@ 85.52% 	
+[2025-10-04 06:41:26,709] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:26,709] ============================
+[2025-10-04 06:41:26,765] Epoch: [155/300], sample_num: 6720, loss_cls: 0.0902.
+[2025-10-04 06:41:27,136] Testing: pr@ 30.07%, auc@ 84.45% 	
+[2025-10-04 06:41:27,151] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:27,151] ============================
+[2025-10-04 06:41:27,203] Epoch: [156/300], sample_num: 6720, loss_cls: 0.0900.
+[2025-10-04 06:41:27,570] Testing: pr@ 26.77%, auc@ 83.37% 	
+[2025-10-04 06:41:27,584] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:27,585] ============================
+[2025-10-04 06:41:27,634] Epoch: [157/300], sample_num: 6720, loss_cls: 0.0867.
+[2025-10-04 06:41:28,005] Testing: pr@ 28.55%, auc@ 83.96% 	
+[2025-10-04 06:41:28,020] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:28,020] ============================
+[2025-10-04 06:41:28,075] Epoch: [158/300], sample_num: 6720, loss_cls: 0.0917.
+[2025-10-04 06:41:28,446] Testing: pr@ 29.75%, auc@ 84.43% 	
+[2025-10-04 06:41:28,461] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:28,462] ============================
+[2025-10-04 06:41:28,517] Epoch: [159/300], sample_num: 6720, loss_cls: 0.0841.
+[2025-10-04 06:41:28,885] Testing: pr@ 28.63%, auc@ 84.09% 	
+[2025-10-04 06:41:28,901] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:28,901] ============================
+[2025-10-04 06:41:28,953] Epoch: [160/300], sample_num: 6720, loss_cls: 0.0878.
+[2025-10-04 06:41:29,330] Testing: pr@ 28.94%, auc@ 84.23% 	
+[2025-10-04 06:41:29,346] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:29,346] ============================
+[2025-10-04 06:41:29,426] Epoch: [161/300], sample_num: 6720, loss_cls: 0.0898.
+[2025-10-04 06:41:29,823] Testing: pr@ 29.95%, auc@ 84.54% 	
+[2025-10-04 06:41:29,838] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:29,839] ============================
+[2025-10-04 06:41:29,891] Epoch: [162/300], sample_num: 6720, loss_cls: 0.0859.
+[2025-10-04 06:41:30,258] Testing: pr@ 30.08%, auc@ 84.49% 	
+[2025-10-04 06:41:30,273] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:30,274] ============================
+[2025-10-04 06:41:30,322] Epoch: [163/300], sample_num: 6720, loss_cls: 0.0927.
+[2025-10-04 06:41:30,695] Testing: pr@ 30.21%, auc@ 84.60% 	
+[2025-10-04 06:41:30,710] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:30,710] ============================
+[2025-10-04 06:41:30,761] Epoch: [164/300], sample_num: 6720, loss_cls: 0.0883.
+[2025-10-04 06:41:31,128] Testing: pr@ 29.20%, auc@ 84.12% 	
+[2025-10-04 06:41:31,143] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:31,143] ============================
+[2025-10-04 06:41:31,193] Epoch: [165/300], sample_num: 6720, loss_cls: 0.0831.
+[2025-10-04 06:41:31,561] Testing: pr@ 30.01%, auc@ 84.63% 	
+[2025-10-04 06:41:31,576] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:31,581] ============================
+[2025-10-04 06:41:31,644] Epoch: [166/300], sample_num: 6720, loss_cls: 0.0891.
+[2025-10-04 06:41:32,022] Testing: pr@ 29.29%, auc@ 84.43% 	
+[2025-10-04 06:41:32,037] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:32,037] ============================
+[2025-10-04 06:41:32,101] Epoch: [167/300], sample_num: 6720, loss_cls: 0.0864.
+[2025-10-04 06:41:32,484] Testing: pr@ 30.16%, auc@ 85.79% 	
+[2025-10-04 06:41:32,499] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:32,499] ============================
+[2025-10-04 06:41:32,553] Epoch: [168/300], sample_num: 6720, loss_cls: 0.0785.
+[2025-10-04 06:41:32,928] Testing: pr@ 29.61%, auc@ 85.28% 	
+[2025-10-04 06:41:32,942] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:32,943] ============================
+[2025-10-04 06:41:33,000] Epoch: [169/300], sample_num: 6720, loss_cls: 0.0918.
+[2025-10-04 06:41:33,365] Testing: pr@ 29.52%, auc@ 84.62% 	
+[2025-10-04 06:41:33,380] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:33,380] ============================
+[2025-10-04 06:41:33,430] Epoch: [170/300], sample_num: 6720, loss_cls: 0.0900.
+[2025-10-04 06:41:33,796] Testing: pr@ 28.54%, auc@ 84.08% 	
+[2025-10-04 06:41:33,811] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:33,811] ============================
+[2025-10-04 06:41:33,860] Epoch: [171/300], sample_num: 6720, loss_cls: 0.0788.
+[2025-10-04 06:41:34,226] Testing: pr@ 30.45%, auc@ 84.70% 	
+[2025-10-04 06:41:34,241] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:34,241] ============================
+[2025-10-04 06:41:34,299] Epoch: [172/300], sample_num: 6720, loss_cls: 0.0843.
+[2025-10-04 06:41:34,676] Testing: pr@ 28.44%, auc@ 84.37% 	
+[2025-10-04 06:41:34,696] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:34,696] ============================
+[2025-10-04 06:41:34,755] Epoch: [173/300], sample_num: 6720, loss_cls: 0.0826.
+[2025-10-04 06:41:35,129] Testing: pr@ 28.42%, auc@ 84.97% 	
+[2025-10-04 06:41:35,145] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:35,145] ============================
+[2025-10-04 06:41:35,201] Epoch: [174/300], sample_num: 6720, loss_cls: 0.0835.
+[2025-10-04 06:41:35,569] Testing: pr@ 31.90%, auc@ 85.34% 	
+[2025-10-04 06:41:35,584] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:35,584] ============================
+[2025-10-04 06:41:35,634] Epoch: [175/300], sample_num: 6720, loss_cls: 0.0824.
+[2025-10-04 06:41:36,000] Testing: pr@ 28.99%, auc@ 84.66% 	
+[2025-10-04 06:41:36,016] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:36,016] ============================
+[2025-10-04 06:41:36,070] Epoch: [176/300], sample_num: 6720, loss_cls: 0.0898.
+[2025-10-04 06:41:36,474] Testing: pr@ 27.80%, auc@ 84.06% 	
+[2025-10-04 06:41:36,493] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:36,494] ============================
+[2025-10-04 06:41:36,547] Epoch: [177/300], sample_num: 6720, loss_cls: 0.0801.
+[2025-10-04 06:41:36,911] Testing: pr@ 28.74%, auc@ 84.17% 	
+[2025-10-04 06:41:36,926] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:36,926] ============================
+[2025-10-04 06:41:36,976] Epoch: [178/300], sample_num: 6720, loss_cls: 0.0934.
+[2025-10-04 06:41:37,343] Testing: pr@ 29.41%, auc@ 84.65% 	
+[2025-10-04 06:41:37,358] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:37,359] ============================
+[2025-10-04 06:41:37,409] Epoch: [179/300], sample_num: 6720, loss_cls: 0.0772.
+[2025-10-04 06:41:37,780] Testing: pr@ 30.93%, auc@ 85.35% 	
+[2025-10-04 06:41:37,795] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:37,795] ============================
+[2025-10-04 06:41:37,846] Epoch: [180/300], sample_num: 6720, loss_cls: 0.0809.
+[2025-10-04 06:41:38,213] Testing: pr@ 30.01%, auc@ 84.98% 	
+[2025-10-04 06:41:38,228] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:38,228] ============================
+[2025-10-04 06:41:38,280] Epoch: [181/300], sample_num: 6720, loss_cls: 0.0825.
+[2025-10-04 06:41:38,656] Testing: pr@ 30.54%, auc@ 84.91% 	
+[2025-10-04 06:41:38,675] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:38,676] ============================
+[2025-10-04 06:41:38,737] Epoch: [182/300], sample_num: 6720, loss_cls: 0.0813.
+[2025-10-04 06:41:39,109] Testing: pr@ 30.61%, auc@ 84.55% 	
+[2025-10-04 06:41:39,124] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:39,124] ============================
+[2025-10-04 06:41:39,175] Epoch: [183/300], sample_num: 6720, loss_cls: 0.0841.
+[2025-10-04 06:41:39,541] Testing: pr@ 27.39%, auc@ 83.74% 	
+[2025-10-04 06:41:39,556] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:39,556] ============================
+[2025-10-04 06:41:39,634] Epoch: [184/300], sample_num: 6720, loss_cls: 0.0843.
+[2025-10-04 06:41:40,005] Testing: pr@ 29.35%, auc@ 84.58% 	
+[2025-10-04 06:41:40,020] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:40,021] ============================
+[2025-10-04 06:41:40,077] Epoch: [185/300], sample_num: 6720, loss_cls: 0.0791.
+[2025-10-04 06:41:40,442] Testing: pr@ 27.65%, auc@ 83.86% 	
+[2025-10-04 06:41:40,457] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:40,457] ============================
+[2025-10-04 06:41:40,512] Epoch: [186/300], sample_num: 6720, loss_cls: 0.0800.
+[2025-10-04 06:41:40,890] Testing: pr@ 29.59%, auc@ 84.35% 	
+[2025-10-04 06:41:40,906] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:40,906] ============================
+[2025-10-04 06:41:40,967] Epoch: [187/300], sample_num: 6720, loss_cls: 0.0731.
+[2025-10-04 06:41:41,355] Testing: pr@ 29.35%, auc@ 84.59% 	
+[2025-10-04 06:41:41,375] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:41,375] ============================
+[2025-10-04 06:41:41,444] Epoch: [188/300], sample_num: 6720, loss_cls: 0.0771.
+[2025-10-04 06:41:41,809] Testing: pr@ 27.05%, auc@ 83.35% 	
+[2025-10-04 06:41:41,824] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:41,824] ============================
+[2025-10-04 06:41:41,876] Epoch: [189/300], sample_num: 6720, loss_cls: 0.0823.
+[2025-10-04 06:41:42,244] Testing: pr@ 28.35%, auc@ 84.03% 	
+[2025-10-04 06:41:42,259] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:42,259] ============================
+[2025-10-04 06:41:42,309] Epoch: [190/300], sample_num: 6720, loss_cls: 0.0834.
+[2025-10-04 06:41:42,675] Testing: pr@ 26.85%, auc@ 83.51% 	
+[2025-10-04 06:41:42,690] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:42,690] ============================
+[2025-10-04 06:41:42,740] Epoch: [191/300], sample_num: 6720, loss_cls: 0.0812.
+[2025-10-04 06:41:43,106] Testing: pr@ 28.81%, auc@ 84.31% 	
+[2025-10-04 06:41:43,120] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:43,121] ============================
+[2025-10-04 06:41:43,170] Epoch: [192/300], sample_num: 6720, loss_cls: 0.0830.
+[2025-10-04 06:41:43,540] Testing: pr@ 28.35%, auc@ 84.16% 	
+[2025-10-04 06:41:43,554] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:43,555] ============================
+[2025-10-04 06:41:43,605] Epoch: [193/300], sample_num: 6720, loss_cls: 0.0819.
+[2025-10-04 06:41:43,971] Testing: pr@ 30.16%, auc@ 84.82% 	
+[2025-10-04 06:41:43,986] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:43,986] ============================
+[2025-10-04 06:41:44,036] Epoch: [194/300], sample_num: 6720, loss_cls: 0.0797.
+[2025-10-04 06:41:44,419] Testing: pr@ 27.97%, auc@ 84.45% 	
+[2025-10-04 06:41:44,434] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:44,434] ============================
+[2025-10-04 06:41:44,489] Epoch: [195/300], sample_num: 6720, loss_cls: 0.0780.
+[2025-10-04 06:41:44,860] Testing: pr@ 26.47%, auc@ 83.67% 	
+[2025-10-04 06:41:44,875] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:44,875] ============================
+[2025-10-04 06:41:44,927] Epoch: [196/300], sample_num: 6720, loss_cls: 0.0818.
+[2025-10-04 06:41:45,294] Testing: pr@ 28.18%, auc@ 84.37% 	
+[2025-10-04 06:41:45,309] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:45,309] ============================
+[2025-10-04 06:41:45,360] Epoch: [197/300], sample_num: 6720, loss_cls: 0.0846.
+[2025-10-04 06:41:45,731] Testing: pr@ 28.20%, auc@ 83.70% 	
+[2025-10-04 06:41:45,746] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:45,746] ============================
+[2025-10-04 06:41:45,804] Epoch: [198/300], sample_num: 6720, loss_cls: 0.0794.
+[2025-10-04 06:41:46,174] Testing: pr@ 28.50%, auc@ 84.40% 	
+[2025-10-04 06:41:46,188] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:46,189] ============================
+[2025-10-04 06:41:46,239] Epoch: [199/300], sample_num: 6720, loss_cls: 0.0778.
+[2025-10-04 06:41:46,611] Testing: pr@ 28.40%, auc@ 83.91% 	
+[2025-10-04 06:41:46,626] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:46,626] ============================
+[2025-10-04 06:41:46,698] Epoch: [200/300], sample_num: 6720, loss_cls: 0.0876.
+[2025-10-04 06:41:47,066] Testing: pr@ 28.37%, auc@ 84.23% 	
+[2025-10-04 06:41:47,081] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:47,081] ============================
+[2025-10-04 06:41:47,136] Epoch: [201/300], sample_num: 6720, loss_cls: 0.0831.
+[2025-10-04 06:41:47,503] Testing: pr@ 27.72%, auc@ 84.15% 	
+[2025-10-04 06:41:47,518] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:47,518] ============================
+[2025-10-04 06:41:47,575] Epoch: [202/300], sample_num: 6720, loss_cls: 0.0813.
+[2025-10-04 06:41:47,945] Testing: pr@ 31.29%, auc@ 85.09% 	
+[2025-10-04 06:41:47,960] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:47,960] ============================
+[2025-10-04 06:41:48,013] Epoch: [203/300], sample_num: 6720, loss_cls: 0.0836.
+[2025-10-04 06:41:48,381] Testing: pr@ 31.41%, auc@ 85.51% 	
+[2025-10-04 06:41:48,395] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:48,396] ============================
+[2025-10-04 06:41:48,457] Epoch: [204/300], sample_num: 6720, loss_cls: 0.0831.
+[2025-10-04 06:41:48,821] Testing: pr@ 30.03%, auc@ 84.87% 	
+[2025-10-04 06:41:48,836] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:48,836] ============================
+[2025-10-04 06:41:48,889] Epoch: [205/300], sample_num: 6720, loss_cls: 0.0754.
+[2025-10-04 06:41:49,262] Testing: pr@ 29.75%, auc@ 84.34% 	
+[2025-10-04 06:41:49,277] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:49,277] ============================
+[2025-10-04 06:41:49,332] Epoch: [206/300], sample_num: 6720, loss_cls: 0.0709.
+[2025-10-04 06:41:49,711] Testing: pr@ 28.55%, auc@ 83.92% 	
+[2025-10-04 06:41:49,728] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:49,728] ============================
+[2025-10-04 06:41:49,784] Epoch: [207/300], sample_num: 6720, loss_cls: 0.0746.
+[2025-10-04 06:41:50,152] Testing: pr@ 26.94%, auc@ 83.54% 	
+[2025-10-04 06:41:50,167] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:50,167] ============================
+[2025-10-04 06:41:50,224] Epoch: [208/300], sample_num: 6720, loss_cls: 0.0760.
+[2025-10-04 06:41:50,592] Testing: pr@ 27.50%, auc@ 83.29% 	
+[2025-10-04 06:41:50,607] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:50,607] ============================
+[2025-10-04 06:41:50,663] Epoch: [209/300], sample_num: 6720, loss_cls: 0.0781.
+[2025-10-04 06:41:51,030] Testing: pr@ 29.29%, auc@ 84.58% 	
+[2025-10-04 06:41:51,045] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:51,045] ============================
+[2025-10-04 06:41:51,097] Epoch: [210/300], sample_num: 6720, loss_cls: 0.0732.
+[2025-10-04 06:41:51,474] Testing: pr@ 27.97%, auc@ 84.20% 	
+[2025-10-04 06:41:51,489] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:51,489] ============================
+[2025-10-04 06:41:51,550] Epoch: [211/300], sample_num: 6720, loss_cls: 0.0764.
+[2025-10-04 06:41:51,920] Testing: pr@ 27.19%, auc@ 83.07% 	
+[2025-10-04 06:41:51,935] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:51,935] ============================
+[2025-10-04 06:41:51,987] Epoch: [212/300], sample_num: 6720, loss_cls: 0.0761.
+[2025-10-04 06:41:52,370] Testing: pr@ 28.79%, auc@ 84.42% 	
+[2025-10-04 06:41:52,390] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:52,391] ============================
+[2025-10-04 06:41:52,451] Epoch: [213/300], sample_num: 6720, loss_cls: 0.0769.
+[2025-10-04 06:41:52,824] Testing: pr@ 27.42%, auc@ 83.35% 	
+[2025-10-04 06:41:52,840] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:52,840] ============================
+[2025-10-04 06:41:52,893] Epoch: [214/300], sample_num: 6720, loss_cls: 0.0814.
+[2025-10-04 06:41:53,260] Testing: pr@ 29.72%, auc@ 84.76% 	
+[2025-10-04 06:41:53,275] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:53,275] ============================
+[2025-10-04 06:41:53,334] Epoch: [215/300], sample_num: 6720, loss_cls: 0.0822.
+[2025-10-04 06:41:53,703] Testing: pr@ 27.13%, auc@ 83.20% 	
+[2025-10-04 06:41:53,718] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:53,718] ============================
+[2025-10-04 06:41:53,774] Epoch: [216/300], sample_num: 6720, loss_cls: 0.0840.
+[2025-10-04 06:41:54,147] Testing: pr@ 28.91%, auc@ 83.68% 	
+[2025-10-04 06:41:54,162] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:54,162] ============================
+[2025-10-04 06:41:54,229] Epoch: [217/300], sample_num: 6720, loss_cls: 0.0687.
+[2025-10-04 06:41:54,594] Testing: pr@ 28.40%, auc@ 83.12% 	
+[2025-10-04 06:41:54,609] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:54,609] ============================
+[2025-10-04 06:41:54,665] Epoch: [218/300], sample_num: 6720, loss_cls: 0.0729.
+[2025-10-04 06:41:55,032] Testing: pr@ 29.39%, auc@ 83.70% 	
+[2025-10-04 06:41:55,047] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:55,047] ============================
+[2025-10-04 06:41:55,099] Epoch: [219/300], sample_num: 6720, loss_cls: 0.0717.
+[2025-10-04 06:41:55,464] Testing: pr@ 30.23%, auc@ 83.97% 	
+[2025-10-04 06:41:55,478] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:55,478] ============================
+[2025-10-04 06:41:55,528] Epoch: [220/300], sample_num: 6720, loss_cls: 0.0813.
+[2025-10-04 06:41:55,894] Testing: pr@ 29.06%, auc@ 83.74% 	
+[2025-10-04 06:41:55,910] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:55,910] ============================
+[2025-10-04 06:41:55,966] Epoch: [221/300], sample_num: 6720, loss_cls: 0.0788.
+[2025-10-04 06:41:56,339] Testing: pr@ 28.85%, auc@ 83.67% 	
+[2025-10-04 06:41:56,354] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:56,354] ============================
+[2025-10-04 06:41:56,405] Epoch: [222/300], sample_num: 6720, loss_cls: 0.0773.
+[2025-10-04 06:41:56,788] Testing: pr@ 26.40%, auc@ 83.09% 	
+[2025-10-04 06:41:56,803] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:56,804] ============================
+[2025-10-04 06:41:56,862] Epoch: [223/300], sample_num: 6720, loss_cls: 0.0872.
+[2025-10-04 06:41:57,230] Testing: pr@ 26.74%, auc@ 83.31% 	
+[2025-10-04 06:41:57,245] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:57,245] ============================
+[2025-10-04 06:41:57,297] Epoch: [224/300], sample_num: 6720, loss_cls: 0.0853.
+[2025-10-04 06:41:57,672] Testing: pr@ 26.52%, auc@ 83.14% 	
+[2025-10-04 06:41:57,687] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:57,687] ============================
+[2025-10-04 06:41:57,740] Epoch: [225/300], sample_num: 6720, loss_cls: 0.0768.
+[2025-10-04 06:41:58,105] Testing: pr@ 28.07%, auc@ 83.18% 	
+[2025-10-04 06:41:58,119] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:58,120] ============================
+[2025-10-04 06:41:58,171] Epoch: [226/300], sample_num: 6720, loss_cls: 0.0736.
+[2025-10-04 06:41:58,550] Testing: pr@ 30.08%, auc@ 84.70% 	
+[2025-10-04 06:41:58,570] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:58,570] ============================
+[2025-10-04 06:41:58,630] Epoch: [227/300], sample_num: 6720, loss_cls: 0.0740.
+[2025-10-04 06:41:58,996] Testing: pr@ 28.98%, auc@ 84.38% 	
+[2025-10-04 06:41:59,011] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:59,011] ============================
+[2025-10-04 06:41:59,064] Epoch: [228/300], sample_num: 6720, loss_cls: 0.0709.
+[2025-10-04 06:41:59,431] Testing: pr@ 27.81%, auc@ 83.98% 	
+[2025-10-04 06:41:59,446] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:59,446] ============================
+[2025-10-04 06:41:59,506] Epoch: [229/300], sample_num: 6720, loss_cls: 0.0740.
+[2025-10-04 06:41:59,877] Testing: pr@ 26.92%, auc@ 83.31% 	
+[2025-10-04 06:41:59,892] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:41:59,892] ============================
+[2025-10-04 06:41:59,948] Epoch: [230/300], sample_num: 6720, loss_cls: 0.0762.
+[2025-10-04 06:42:00,326] Testing: pr@ 27.49%, auc@ 83.65% 	
+[2025-10-04 06:42:00,346] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:00,346] ============================
+[2025-10-04 06:42:00,408] Epoch: [231/300], sample_num: 6720, loss_cls: 0.0840.
+[2025-10-04 06:42:00,776] Testing: pr@ 30.96%, auc@ 84.87% 	
+[2025-10-04 06:42:00,791] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:00,791] ============================
+[2025-10-04 06:42:00,846] Epoch: [232/300], sample_num: 6720, loss_cls: 0.0786.
+[2025-10-04 06:42:01,221] Testing: pr@ 30.92%, auc@ 84.67% 	
+[2025-10-04 06:42:01,235] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:01,235] ============================
+[2025-10-04 06:42:01,286] Epoch: [233/300], sample_num: 6720, loss_cls: 0.0723.
+[2025-10-04 06:42:01,653] Testing: pr@ 30.07%, auc@ 84.45% 	
+[2025-10-04 06:42:01,668] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:01,668] ============================
+[2025-10-04 06:42:01,737] Epoch: [234/300], sample_num: 6720, loss_cls: 0.0752.
+[2025-10-04 06:42:02,110] Testing: pr@ 29.40%, auc@ 83.69% 	
+[2025-10-04 06:42:02,125] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:02,126] ============================
+[2025-10-04 06:42:02,178] Epoch: [235/300], sample_num: 6720, loss_cls: 0.0735.
+[2025-10-04 06:42:02,544] Testing: pr@ 28.97%, auc@ 83.92% 	
+[2025-10-04 06:42:02,559] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:02,559] ============================
+[2025-10-04 06:42:02,610] Epoch: [236/300], sample_num: 6720, loss_cls: 0.0707.
+[2025-10-04 06:42:02,978] Testing: pr@ 28.20%, auc@ 83.71% 	
+[2025-10-04 06:42:02,993] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:02,993] ============================
+[2025-10-04 06:42:03,048] Epoch: [237/300], sample_num: 6720, loss_cls: 0.0707.
+[2025-10-04 06:42:03,419] Testing: pr@ 26.43%, auc@ 82.58% 	
+[2025-10-04 06:42:03,433] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:03,433] ============================
+[2025-10-04 06:42:03,484] Epoch: [238/300], sample_num: 6720, loss_cls: 0.0761.
+[2025-10-04 06:42:03,851] Testing: pr@ 30.02%, auc@ 84.41% 	
+[2025-10-04 06:42:03,866] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:03,866] ============================
+[2025-10-04 06:42:03,917] Epoch: [239/300], sample_num: 6720, loss_cls: 0.0844.
+[2025-10-04 06:42:04,298] Testing: pr@ 29.08%, auc@ 84.04% 	
+[2025-10-04 06:42:04,317] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:04,318] ============================
+[2025-10-04 06:42:04,380] Epoch: [240/300], sample_num: 6720, loss_cls: 0.0842.
+[2025-10-04 06:42:04,824] Testing: pr@ 28.14%, auc@ 83.49% 	
+[2025-10-04 06:42:04,842] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:04,843] ============================
+[2025-10-04 06:42:04,906] Epoch: [241/300], sample_num: 6720, loss_cls: 0.0796.
+[2025-10-04 06:42:05,366] Testing: pr@ 27.78%, auc@ 83.82% 	
+[2025-10-04 06:42:05,385] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:05,385] ============================
+[2025-10-04 06:42:05,443] Epoch: [242/300], sample_num: 6720, loss_cls: 0.0758.
+[2025-10-04 06:42:05,884] Testing: pr@ 29.87%, auc@ 83.35% 	
+[2025-10-04 06:42:05,903] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:05,903] ============================
+[2025-10-04 06:42:05,964] Epoch: [243/300], sample_num: 6720, loss_cls: 0.0766.
+[2025-10-04 06:42:06,405] Testing: pr@ 28.36%, auc@ 83.01% 	
+[2025-10-04 06:42:06,424] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:06,424] ============================
+[2025-10-04 06:42:06,477] Epoch: [244/300], sample_num: 6720, loss_cls: 0.0719.
+[2025-10-04 06:42:06,844] Testing: pr@ 25.83%, auc@ 82.17% 	
+[2025-10-04 06:42:06,859] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:06,859] ============================
+[2025-10-04 06:42:06,910] Epoch: [245/300], sample_num: 6720, loss_cls: 0.0727.
+[2025-10-04 06:42:07,275] Testing: pr@ 28.59%, auc@ 83.34% 	
+[2025-10-04 06:42:07,290] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:07,290] ============================
+[2025-10-04 06:42:07,341] Epoch: [246/300], sample_num: 6720, loss_cls: 0.0733.
+[2025-10-04 06:42:07,795] Testing: pr@ 28.91%, auc@ 83.54% 	
+[2025-10-04 06:42:07,814] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:07,814] ============================
+[2025-10-04 06:42:07,868] Epoch: [247/300], sample_num: 6720, loss_cls: 0.0741.
+[2025-10-04 06:42:08,308] Testing: pr@ 26.34%, auc@ 82.83% 	
+[2025-10-04 06:42:08,327] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:08,327] ============================
+[2025-10-04 06:42:08,381] Epoch: [248/300], sample_num: 6720, loss_cls: 0.0687.
+[2025-10-04 06:42:08,817] Testing: pr@ 28.25%, auc@ 83.21% 	
+[2025-10-04 06:42:08,836] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:08,836] ============================
+[2025-10-04 06:42:08,889] Epoch: [249/300], sample_num: 6720, loss_cls: 0.0763.
+[2025-10-04 06:42:09,325] Testing: pr@ 29.87%, auc@ 83.95% 	
+[2025-10-04 06:42:09,343] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:09,344] ============================
+[2025-10-04 06:42:09,414] Epoch: [250/300], sample_num: 6720, loss_cls: 0.0768.
+[2025-10-04 06:42:09,837] Testing: pr@ 29.89%, auc@ 83.96% 	
+[2025-10-04 06:42:09,852] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:09,852] ============================
+[2025-10-04 06:42:09,911] Epoch: [251/300], sample_num: 6720, loss_cls: 0.0671.
+[2025-10-04 06:42:10,273] Testing: pr@ 28.00%, auc@ 83.34% 	
+[2025-10-04 06:42:10,288] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:10,288] ============================
+[2025-10-04 06:42:10,338] Epoch: [252/300], sample_num: 6720, loss_cls: 0.0696.
+[2025-10-04 06:42:10,702] Testing: pr@ 28.13%, auc@ 83.05% 	
+[2025-10-04 06:42:10,716] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:10,716] ============================
+[2025-10-04 06:42:10,766] Epoch: [253/300], sample_num: 6720, loss_cls: 0.0682.
+[2025-10-04 06:42:11,129] Testing: pr@ 30.40%, auc@ 84.27% 	
+[2025-10-04 06:42:11,144] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:11,144] ============================
+[2025-10-04 06:42:11,197] Epoch: [254/300], sample_num: 6720, loss_cls: 0.0716.
+[2025-10-04 06:42:11,561] Testing: pr@ 27.79%, auc@ 83.22% 	
+[2025-10-04 06:42:11,576] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:11,576] ============================
+[2025-10-04 06:42:11,625] Epoch: [255/300], sample_num: 6720, loss_cls: 0.0718.
+[2025-10-04 06:42:11,986] Testing: pr@ 27.52%, auc@ 83.24% 	
+[2025-10-04 06:42:12,001] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:12,001] ============================
+[2025-10-04 06:42:12,052] Epoch: [256/300], sample_num: 6720, loss_cls: 0.0676.
+[2025-10-04 06:42:12,415] Testing: pr@ 29.12%, auc@ 83.71% 	
+[2025-10-04 06:42:12,430] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:12,431] ============================
+[2025-10-04 06:42:12,479] Epoch: [257/300], sample_num: 6720, loss_cls: 0.0718.
+[2025-10-04 06:42:12,845] Testing: pr@ 28.13%, auc@ 83.73% 	
+[2025-10-04 06:42:12,860] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:12,860] ============================
+[2025-10-04 06:42:12,920] Epoch: [258/300], sample_num: 6720, loss_cls: 0.0804.
+[2025-10-04 06:42:13,282] Testing: pr@ 28.63%, auc@ 83.83% 	
+[2025-10-04 06:42:13,297] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:13,297] ============================
+[2025-10-04 06:42:13,347] Epoch: [259/300], sample_num: 6720, loss_cls: 0.0674.
+[2025-10-04 06:42:13,714] Testing: pr@ 27.76%, auc@ 83.62% 	
+[2025-10-04 06:42:13,729] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:13,729] ============================
+[2025-10-04 06:42:13,778] Epoch: [260/300], sample_num: 6720, loss_cls: 0.0681.
+[2025-10-04 06:42:14,139] Testing: pr@ 28.77%, auc@ 83.69% 	
+[2025-10-04 06:42:14,154] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:14,154] ============================
+[2025-10-04 06:42:14,205] Epoch: [261/300], sample_num: 6720, loss_cls: 0.0633.
+[2025-10-04 06:42:14,568] Testing: pr@ 26.93%, auc@ 83.13% 	
+[2025-10-04 06:42:14,583] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:14,583] ============================
+[2025-10-04 06:42:14,632] Epoch: [262/300], sample_num: 6720, loss_cls: 0.0687.
+[2025-10-04 06:42:14,997] Testing: pr@ 27.80%, auc@ 83.50% 	
+[2025-10-04 06:42:15,013] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:15,013] ============================
+[2025-10-04 06:42:15,062] Epoch: [263/300], sample_num: 6720, loss_cls: 0.0718.
+[2025-10-04 06:42:15,428] Testing: pr@ 26.51%, auc@ 83.02% 	
+[2025-10-04 06:42:15,442] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:15,442] ============================
+[2025-10-04 06:42:15,493] Epoch: [264/300], sample_num: 6720, loss_cls: 0.0705.
+[2025-10-04 06:42:15,857] Testing: pr@ 28.36%, auc@ 84.01% 	
+[2025-10-04 06:42:15,872] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:15,872] ============================
+[2025-10-04 06:42:15,925] Epoch: [265/300], sample_num: 6720, loss_cls: 0.0762.
+[2025-10-04 06:42:16,287] Testing: pr@ 28.67%, auc@ 83.58% 	
+[2025-10-04 06:42:16,302] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:16,302] ============================
+[2025-10-04 06:42:16,364] Epoch: [266/300], sample_num: 6720, loss_cls: 0.0789.
+[2025-10-04 06:42:16,740] Testing: pr@ 29.87%, auc@ 84.57% 	
+[2025-10-04 06:42:16,755] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:16,755] ============================
+[2025-10-04 06:42:16,819] Epoch: [267/300], sample_num: 6720, loss_cls: 0.0662.
+[2025-10-04 06:42:17,185] Testing: pr@ 27.10%, auc@ 82.86% 	
+[2025-10-04 06:42:17,200] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:17,200] ============================
+[2025-10-04 06:42:17,251] Epoch: [268/300], sample_num: 6720, loss_cls: 0.0657.
+[2025-10-04 06:42:17,617] Testing: pr@ 29.69%, auc@ 83.94% 	
+[2025-10-04 06:42:17,631] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:17,632] ============================
+[2025-10-04 06:42:17,680] Epoch: [269/300], sample_num: 6720, loss_cls: 0.0658.
+[2025-10-04 06:42:18,045] Testing: pr@ 29.00%, auc@ 83.95% 	
+[2025-10-04 06:42:18,059] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:18,060] ============================
+[2025-10-04 06:42:18,114] Epoch: [270/300], sample_num: 6720, loss_cls: 0.0694.
+[2025-10-04 06:42:18,481] Testing: pr@ 29.37%, auc@ 83.77% 	
+[2025-10-04 06:42:18,495] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:18,496] ============================
+[2025-10-04 06:42:18,545] Epoch: [271/300], sample_num: 6720, loss_cls: 0.0688.
+[2025-10-04 06:42:18,908] Testing: pr@ 28.29%, auc@ 83.44% 	
+[2025-10-04 06:42:18,923] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:18,923] ============================
+[2025-10-04 06:42:18,979] Epoch: [272/300], sample_num: 6720, loss_cls: 0.0758.
+[2025-10-04 06:42:19,347] Testing: pr@ 27.84%, auc@ 83.43% 	
+[2025-10-04 06:42:19,362] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:19,362] ============================
+[2025-10-04 06:42:19,416] Epoch: [273/300], sample_num: 6720, loss_cls: 0.0720.
+[2025-10-04 06:42:19,825] Testing: pr@ 28.65%, auc@ 83.72% 	
+[2025-10-04 06:42:19,840] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:19,841] ============================
+[2025-10-04 06:42:19,890] Epoch: [274/300], sample_num: 6720, loss_cls: 0.0749.
+[2025-10-04 06:42:20,254] Testing: pr@ 28.26%, auc@ 84.00% 	
+[2025-10-04 06:42:20,269] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:20,269] ============================
+[2025-10-04 06:42:20,320] Epoch: [275/300], sample_num: 6720, loss_cls: 0.0729.
+[2025-10-04 06:42:20,725] Testing: pr@ 29.29%, auc@ 84.14% 	
+[2025-10-04 06:42:20,740] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:20,740] ============================
+[2025-10-04 06:42:20,790] Epoch: [276/300], sample_num: 6720, loss_cls: 0.0756.
+[2025-10-04 06:42:21,156] Testing: pr@ 29.76%, auc@ 83.39% 	
+[2025-10-04 06:42:21,172] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:21,172] ============================
+[2025-10-04 06:42:21,226] Epoch: [277/300], sample_num: 6720, loss_cls: 0.0728.
+[2025-10-04 06:42:21,593] Testing: pr@ 27.63%, auc@ 83.10% 	
+[2025-10-04 06:42:21,608] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:21,609] ============================
+[2025-10-04 06:42:21,661] Epoch: [278/300], sample_num: 6720, loss_cls: 0.0632.
+[2025-10-04 06:42:22,046] Testing: pr@ 29.16%, auc@ 83.78% 	
+[2025-10-04 06:42:22,066] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:22,066] ============================
+[2025-10-04 06:42:22,129] Epoch: [279/300], sample_num: 6720, loss_cls: 0.0684.
+[2025-10-04 06:42:22,502] Testing: pr@ 27.58%, auc@ 83.35% 	
+[2025-10-04 06:42:22,517] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:22,517] ============================
+[2025-10-04 06:42:22,566] Epoch: [280/300], sample_num: 6720, loss_cls: 0.0662.
+[2025-10-04 06:42:22,942] Testing: pr@ 29.68%, auc@ 84.08% 	
+[2025-10-04 06:42:22,962] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:22,962] ============================
+[2025-10-04 06:42:23,019] Epoch: [281/300], sample_num: 6720, loss_cls: 0.0711.
+[2025-10-04 06:42:23,391] Testing: pr@ 29.93%, auc@ 84.34% 	
+[2025-10-04 06:42:23,406] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:23,406] ============================
+[2025-10-04 06:42:23,457] Epoch: [282/300], sample_num: 6720, loss_cls: 0.0733.
+[2025-10-04 06:42:23,821] Testing: pr@ 29.38%, auc@ 84.23% 	
+[2025-10-04 06:42:23,836] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:23,836] ============================
+[2025-10-04 06:42:23,888] Epoch: [283/300], sample_num: 6720, loss_cls: 0.0651.
+[2025-10-04 06:42:24,259] Testing: pr@ 27.95%, auc@ 83.70% 	
+[2025-10-04 06:42:24,273] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:24,274] ============================
+[2025-10-04 06:42:24,342] Epoch: [284/300], sample_num: 6720, loss_cls: 0.0754.
+[2025-10-04 06:42:24,710] Testing: pr@ 29.00%, auc@ 83.81% 	
+[2025-10-04 06:42:24,725] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:24,725] ============================
+[2025-10-04 06:42:24,781] Epoch: [285/300], sample_num: 6720, loss_cls: 0.0625.
+[2025-10-04 06:42:25,149] Testing: pr@ 29.68%, auc@ 84.60% 	
+[2025-10-04 06:42:25,164] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:25,164] ============================
+[2025-10-04 06:42:25,223] Epoch: [286/300], sample_num: 6720, loss_cls: 0.0692.
+[2025-10-04 06:42:25,587] Testing: pr@ 30.15%, auc@ 83.81% 	
+[2025-10-04 06:42:25,603] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:25,604] ============================
+[2025-10-04 06:42:25,659] Epoch: [287/300], sample_num: 6720, loss_cls: 0.0690.
+[2025-10-04 06:42:26,023] Testing: pr@ 27.85%, auc@ 82.92% 	
+[2025-10-04 06:42:26,038] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:26,038] ============================
+[2025-10-04 06:42:26,091] Epoch: [288/300], sample_num: 6720, loss_cls: 0.0697.
+[2025-10-04 06:42:26,471] Testing: pr@ 29.74%, auc@ 83.60% 	
+[2025-10-04 06:42:26,486] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:26,486] ============================
+[2025-10-04 06:42:26,543] Epoch: [289/300], sample_num: 6720, loss_cls: 0.0685.
+[2025-10-04 06:42:26,909] Testing: pr@ 29.27%, auc@ 84.53% 	
+[2025-10-04 06:42:26,923] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:26,924] ============================
+[2025-10-04 06:42:26,979] Epoch: [290/300], sample_num: 6720, loss_cls: 0.0712.
+[2025-10-04 06:42:27,345] Testing: pr@ 29.82%, auc@ 84.63% 	
+[2025-10-04 06:42:27,360] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:27,361] ============================
+[2025-10-04 06:42:27,410] Epoch: [291/300], sample_num: 6720, loss_cls: 0.0654.
+[2025-10-04 06:42:27,776] Testing: pr@ 29.13%, auc@ 84.47% 	
+[2025-10-04 06:42:27,793] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:27,793] ============================
+[2025-10-04 06:42:27,860] Epoch: [292/300], sample_num: 6720, loss_cls: 0.0663.
+[2025-10-04 06:42:28,237] Testing: pr@ 27.74%, auc@ 83.40% 	
+[2025-10-04 06:42:28,252] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:28,252] ============================
+[2025-10-04 06:42:28,307] Epoch: [293/300], sample_num: 6720, loss_cls: 0.0730.
+[2025-10-04 06:42:28,678] Testing: pr@ 31.62%, auc@ 84.51% 	
+[2025-10-04 06:42:28,693] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:28,693] ============================
+[2025-10-04 06:42:28,743] Epoch: [294/300], sample_num: 6720, loss_cls: 0.0712.
+[2025-10-04 06:42:29,112] Testing: pr@ 31.44%, auc@ 84.41% 	
+[2025-10-04 06:42:29,127] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:29,127] ============================
+[2025-10-04 06:42:29,177] Epoch: [295/300], sample_num: 6720, loss_cls: 0.0636.
+[2025-10-04 06:42:29,542] Testing: pr@ 30.10%, auc@ 83.97% 	
+[2025-10-04 06:42:29,557] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:29,557] ============================
+[2025-10-04 06:42:29,606] Epoch: [296/300], sample_num: 6720, loss_cls: 0.0696.
+[2025-10-04 06:42:29,977] Testing: pr@ 28.37%, auc@ 83.67% 	
+[2025-10-04 06:42:29,992] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:29,992] ============================
+[2025-10-04 06:42:30,042] Epoch: [297/300], sample_num: 6720, loss_cls: 0.0679.
+[2025-10-04 06:42:30,408] Testing: pr@ 29.98%, auc@ 83.65% 	
+[2025-10-04 06:42:30,422] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:30,423] ============================
+[2025-10-04 06:42:30,471] Epoch: [298/300], sample_num: 6720, loss_cls: 0.0655.
+[2025-10-04 06:42:30,846] Testing: pr@ 28.11%, auc@ 83.09% 	
+[2025-10-04 06:42:30,867] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:30,867] ============================
+[2025-10-04 06:42:30,929] Epoch: [299/300], sample_num: 6720, loss_cls: 0.0673.
+[2025-10-04 06:42:31,307] Testing: pr@ 30.37%, auc@ 84.04% 	
+[2025-10-04 06:42:31,322] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:31,322] ============================
+[2025-10-04 06:42:31,416] Epoch: [300/300], sample_num: 6720, loss_cls: 0.0649.
+[2025-10-04 06:42:31,782] Testing: pr@ 30.26%, auc@ 83.60% 	
+[2025-10-04 06:42:31,798] best_AUC 86.49 at epoch 40.	 best_PR 34.17 at epoch 83.
+[2025-10-04 06:42:31,798] ============================
+[2025-10-04 06:42:31,811] Saved last epoch checkpoint to ./ckpts/shanghaitech/shanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01/last_epoch.pkl
+[34m[1mwandb[0m: - 0.004 MB of 0.004 MB uploaded[34m[1mwandb[0m: \ 0.004 MB of 0.004 MB uploaded[34m[1mwandb[0m: | 0.004 MB of 0.004 MB uploaded[34m[1mwandb[0m: / 0.113 MB of 0.113 MB uploaded[34m[1mwandb[0m:                                                                                
+[34m[1mwandb[0m: 
+[34m[1mwandb[0m: Run history:
+[34m[1mwandb[0m:                epoch ▁▁▁▁▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▅▆▆▆▆▆▆▇▇▇▇▇███
+[34m[1mwandb[0m: model/weight_abs_max ▁▁▁▂▂▂▂▃▃▃▄▄▄▄▄▅▅▅▅▅▆▆▆▆▆▇▇▇▇▇▇▇▇▇██████
+[34m[1mwandb[0m: model/weight_l1_norm ▁▁▂▂▂▂▃▃▃▃▃▄▄▄▄▅▅▅▅▅▅▆▆▆▆▆▆▇▇▇▇▇▇▇▇█████
+[34m[1mwandb[0m: model/weight_l2_norm ▁▁▁▂▂▂▂▂▃▃▃▃▃▄▄▄▄▅▅▅▅▅▅▆▆▆▆▆▆▇▇▇▇▇▇▇████
+[34m[1mwandb[0m:           train/loss █▇▅▆▅▅▅▅▅▄▄▄▄▄▃▃▃▃▃▃▂▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▂▂▁▁
+[34m[1mwandb[0m:           val/pr_auc ▁▃▅▇▇█▇▇▆█▇▇▇▆▇▇▇▇▆▆▆▆▆▅▆▆▆▅▆▅▅▆▅▆▆▆▆▆▅▆
+[34m[1mwandb[0m:          val/roc_auc ▁▄▄▆▇█▇▇▆█▇▇▇▇▇█▇▇▇▆▆▆▇▆▇▆▆▆▆▆▆▆▅▆▆▆▆▆▆▆
+[34m[1mwandb[0m: 
+[34m[1mwandb[0m: Run summary:
+[34m[1mwandb[0m:   best_auc_checkpoint ./ckpts/shanghaitech...
+[34m[1mwandb[0m:    best_pr_checkpoint ./ckpts/shanghaitech...
+[34m[1mwandb[0m:       best_val_pr_auc 34.16587
+[34m[1mwandb[0m:      best_val_roc_auc 86.49361
+[34m[1mwandb[0m:                 epoch 300
+[34m[1mwandb[0m: last_epoch_checkpoint ./ckpts/shanghaitech...
+[34m[1mwandb[0m:  model/weight_abs_max 0.19243
+[34m[1mwandb[0m:  model/weight_l1_norm 32439.43047
+[34m[1mwandb[0m:  model/weight_l2_norm 24.62011
+[34m[1mwandb[0m:        num_parameters 3409409
+[34m[1mwandb[0m:            train/loss 0.06486
+[34m[1mwandb[0m:            val/pr_auc 30.26212
+[34m[1mwandb[0m:           val/roc_auc 83.60433
+[34m[1mwandb[0m: 
+[34m[1mwandb[0m: 🚀 View run [33mshanghaitech_seed1_lr_0.0001_2025-10-04-06_40_01[0m at: [34m[4mhttps://wandb.ai/solhee0912-kookmin-university/vad/runs/dccdklha[0m
+[34m[1mwandb[0m: ⭐️ View project at: [34m[4mhttps://wandb.ai/solhee0912-kookmin-university/vad[0m
+[34m[1mwandb[0m: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+[34m[1mwandb[0m: Find logs at: [35m[1m./wandb/run-20251004_064003-dccdklha/logs[0m
+[?2004hroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# (arg: 1) [K4) root@7fd7211aa00b:/workspace# ^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# sdfsdf^C[?2004l[?2004h[?2004l
+[?2004hroot@7fd7211aa00b:/workspace# 

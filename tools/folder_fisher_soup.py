@@ -254,11 +254,13 @@ def main():
         torch.save(mask_cpu, mask_path)
         logger.info("Saved combined mask to %s", mask_path)
 
+    coefficients_serialized = [float(c) for c in best_coefficients]
+
     metadata = {
         "folders": [str(p) for p in args.folders],
         "checkpoints": [str(p) for p in checkpoint_paths],
         "fisher_paths": [str(p) for p in fisher_paths],
-        "coefficients": best_coefficients,
+        "coefficients": coefficients_serialized,
         "strategy": args.strategy,
         "n_combinations": args.n_combinations,
         "fisher_floor": args.fisher_floor,
@@ -274,10 +276,12 @@ def main():
         metadata["mask_stats"] = {
             "retained_weights": nonzero_mask,
             "total_weights": total_mask_elems,
-            "density": nonzero_mask / total_mask_elems if total_mask_elems else 0.0,
+            "density": float(nonzero_mask / total_mask_elems) if total_mask_elems else 0.0,
         }
     if best_result is not None:
-        metadata["evaluation_score"] = best_result.score
+        metadata["evaluation_score"] = {
+            key: float(value) for key, value in best_result.score.items()
+        }
 
     metadata_path = output_path.with_suffix(output_path.suffix + "_metadata.yaml")
     with open(metadata_path, "w") as handle:
