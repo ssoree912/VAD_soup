@@ -24,34 +24,49 @@ import numpy as np
 import torch
 import yaml
 from PIL import Image
+import importlib.util
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from model import AD_Model
 from utils import set_seeds
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKBONE_ROOT = REPO_ROOT / "video-classification-3d-cnn-pytorch"
 
 if str(BACKBONE_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKBONE_ROOT))
 
+def _load_backbone_module(module_label: str, relative_path: str):
+    module_name = f"_backbone_{module_label}"
+    module_path = BACKBONE_ROOT / relative_path
+    if not module_path.exists():
+        raise FileNotFoundError(f"Expected backbone file not found: {module_path}")
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load backbone module {module_label} from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)  # type: ignore[assignment]
+    return module
+
 try:
-    from mean import get_mean as backbone_mean  # type: ignore
-    from model import generate_model as generate_backbone  # type: ignore
-    from spatial_transforms import (  # type: ignore
-        CenterCrop,
-        Compose,
-        Normalize,
-        Scale,
-        ToTensor,
-    )
-except ModuleNotFoundError as exc:
+    backbone_mean = _load_backbone_module("mean", "mean.py").get_mean  # type: ignore[attr-defined]
+    backbone_model_module = _load_backbone_module("model", "model.py")
+    generate_backbone = backbone_model_module.generate_model  # type: ignore[attr-defined]
+    spatial_transforms_module = _load_backbone_module("spatial_transforms", "spatial_transforms.py")
+    CenterCrop = spatial_transforms_module.CenterCrop  # type: ignore[attr-defined]
+    Compose = spatial_transforms_module.Compose  # type: ignore[attr-defined]
+    Normalize = spatial_transforms_module.Normalize  # type: ignore[attr-defined]
+    Scale = spatial_transforms_module.Scale  # type: ignore[attr-defined]
+    ToTensor = spatial_transforms_module.ToTensor  # type: ignore[attr-defined]
+except (ModuleNotFoundError, AttributeError) as exc:
     raise ModuleNotFoundError(
-        "Unable to import the backbone feature extractor utilities. "
-        "Make sure the 'video-classification-3d-cnn-pytorch' folder is present "
-        "next to this repository."
+        "Backbone utilities could not be imported. "
+        "Ensure 'video-classification-3d-cnn-pytorch' is present with the expected files."
     ) from exc
 finally:
-    # Restore the original module search path order.
     if str(BACKBONE_ROOT) in sys.path:
         sys.path.remove(str(BACKBONE_ROOT))
         sys.path.append(str(BACKBONE_ROOT))
@@ -64,10 +79,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Path to YAML config used for training.")
     parser.add_argument("--checkpoint", required=True, help="Trained AD_Model checkpoint (.pt).")
     parser.add_argument("--video-name", required=True, help="Video identifier (e.g. 01_0015).")
+    parser.add_argument("--video-path", default=None, help="Optional explicit path to frames folder or video file.")
     parser.add_argument("--segment-index", type=int, required=True, help="Temporal snippet index to explain.")
     parser.add_argument("--split", choices=["train", "test"], default="test", help="Dataset split containing the video.")
     parser.add_argument("--backbone-weights", required=True, help="Weights file for the 3D backbone (ResNeXt).")
-    parser.add_argument("--grid-size", type=int, default=8, help="Number of grid cells along each axis.")
+    parser.add_argument("--grid-sizes", type=int, nargs="+", default=[8],
+                        help="One or more grid sizes (number of cells per axis).")
     parser.add_argument("--masking", choices=["grid", "rise"], default="grid", help="Occlusion strategy.")
     parser.add_argument("--num-masks", type=int, default=64, help="Number of random masks for RISE.")
     parser.add_argument("--rise-on-prob", type=float, default=0.5, help="Probability that a cell stays visible in each RISE mask.")
@@ -76,6 +93,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None, help="Device override (cpu / cuda). Defaults to config/device if available.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for mask sampling.")
     parser.add_argument("--fill-mode", choices=["mean", "zero"], default="mean", help="Pixel fill value inside masked regions.")
+    parser.add_argument("--feature-norm", choices=["none", "zscore", "l2"], default=None,
+                        help="Feature normalization mode to apply to occluded snippets.")
+    parser.add_argument("--feature-stats", default=None,
+                        help="Path to .npz file containing feature statistics for normalization.")
+    parser.add_argument("--normalize-baseline", action="store_true",
+                        help="Apply the chosen feature normalization to baseline features as well.")
+    parser.add_argument("--delta-relu", action="store_true",
+                        help="Clamp score deltas to max(0, baseline - masked).")
+    parser.add_argument("--segment-stride", type=int, default=None,
+                        help="Override snippet stride used when mapping index to frames.")
+    parser.add_argument("--top-p", type=float, default=0.0,
+                        help="Fraction of hottest pixels for Top-p pooling (0 disables).")
+    parser.add_argument("--alpha", type=float, default=0.3,
+                        help="Blend factor for fused score: alpha*TopP + (1-alpha)*baseline.")
     parser.add_argument("--model-name", default="resnext", help="Backbone model family (default: resnext).")
     parser.add_argument("--model-depth", type=int, default=101, help="Backbone depth (default: 101).")
     parser.add_argument("--resnext-cardinality", type=int, default=32, help="ResNeXt cardinality (default: 32).")
@@ -127,36 +158,22 @@ def dataset_roots(cfg: SimpleNamespace, split: str) -> Tuple[Path, Path]:
     return frames_root, videos_root
 
 
-def load_segment_frames(
-    video_name: str,
-    segment_index: int,
-    segment_len: int,
-    frames_root: Path,
-    videos_root: Path,
-) -> List[np.ndarray]:
-    start = segment_index * segment_len
-    frames_dir = frames_root / video_name
+def load_segment_from_frames_dir(frames_dir: Path, start: int, segment_len: int) -> List[np.ndarray]:
+    frame_files = sorted(p for p in frames_dir.glob("*.jpg") if p.is_file())
+    if not frame_files:
+        raise FileNotFoundError(f"No frame images found in {frames_dir}")
 
-    if frames_dir.is_dir():
-        frame_files = sorted(p for p in frames_dir.glob("*.jpg") if p.is_file())
-        if not frame_files:
-            raise FileNotFoundError(f"No frame images found in {frames_dir}")
+    frames: List[np.ndarray] = []
+    for offset in range(segment_len):
+        idx = min(start + offset, len(frame_files) - 1)
+        img = cv2.imread(str(frame_files[idx]), cv2.IMREAD_COLOR)
+        if img is None:
+            raise RuntimeError(f"Failed to read frame {frame_files[idx]}")
+        frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    return frames
 
-        frames: List[np.ndarray] = []
-        for offset in range(segment_len):
-            idx = min(start + offset, len(frame_files) - 1)
-            img = cv2.imread(str(frame_files[idx]), cv2.IMREAD_COLOR)
-            if img is None:
-                raise RuntimeError(f"Failed to read frame {frame_files[idx]}")
-            frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        return frames
 
-    video_path = videos_root / f"{video_name}.avi"
-    if not video_path.exists():
-        raise FileNotFoundError(
-            f"Neither frames ({frames_dir}) nor video file ({video_path}) found."
-        )
-
+def load_segment_from_video_file(video_path: Path, start: int, segment_len: int) -> List[np.ndarray]:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open video file {video_path}")
@@ -181,6 +198,28 @@ def load_segment_frames(
         raise RuntimeError(f"Unable to retrieve frames from {video_path}")
 
     return frames
+
+
+def load_segment_frames(
+    video_name: str,
+    segment_index: int,
+    segment_len: int,
+    frames_root: Path,
+    videos_root: Path,
+) -> List[np.ndarray]:
+    start = segment_index * segment_len
+    frames_dir = frames_root / video_name
+
+    if frames_dir.is_dir():
+        return load_segment_from_frames_dir(frames_dir, start, segment_len)
+
+    video_path = videos_root / f"{video_name}.avi"
+    if video_path.exists():
+        return load_segment_from_video_file(video_path, start, segment_len)
+
+    raise FileNotFoundError(
+        f"Neither frames ({frames_dir}) nor video file ({video_path}) found."
+    )
 
 
 def collate_frames(frames: Iterable[np.ndarray]) -> np.ndarray:
@@ -313,6 +352,42 @@ class BackboneFeatureExtractor:
         return feature.astype(np.float32, copy=False)
 
 
+class FeatureNormalizer:
+    def __init__(self, mode: str | None, stats_path: str | None):
+        self.mode = (mode or "none").lower()
+        self.eps = 1e-6
+        self.mean = None
+        self.std = None
+        if self.mode == "zscore":
+            if stats_path is None:
+                raise ValueError("Feature normalization 'zscore' requires --feature-stats (.npz with mean/std).")
+            stats = np.load(stats_path)
+            mean_key = next((k for k in ("mean", "mu", "avg") if k in stats), None)
+            std_key = next((k for k in ("std", "sigma", "var") if k in stats), None)
+            if mean_key is None or std_key is None:
+                raise ValueError(f"Stats file {stats_path} must contain 'mean'/'std' (or 'mu'/'sigma').")
+            self.mean = stats[mean_key].astype(np.float32, copy=False)
+            self.std = stats[std_key].astype(np.float32, copy=False)
+            if self.mean.shape != self.std.shape:
+                raise ValueError("Mean and std tensors must share the same shape for z-score normalization.")
+        elif self.mode not in ("none", "l2"):
+            raise ValueError(f"Unsupported feature-norm mode: {self.mode}")
+
+    def apply(self, feature: np.ndarray) -> np.ndarray:
+        if self.mode == "none":
+            return feature
+        if self.mode == "zscore":
+            if self.mean is None or self.std is None:
+                raise RuntimeError("Z-score normalizer is not initialized properly.")
+            return (feature - self.mean) / (self.std + self.eps)
+        if self.mode == "l2":
+            norm = np.linalg.norm(feature)
+            if norm < self.eps:
+                return feature
+            return feature / norm
+        return feature
+
+
 def prepare_model(cfg: SimpleNamespace, checkpoint: Path, device: torch.device) -> AD_Model:
     model = AD_Model(cfg.feature_dim, 512, cfg.dropout_rate)
     state = torch.load(str(checkpoint), map_location=device)
@@ -365,6 +440,7 @@ def grid_occlusion_heatmap(
     grid_size: int,
     fill_rgb: np.ndarray,
     device: torch.device,
+    feature_normalizer: FeatureNormalizer,
 ) -> np.ndarray:
     grid_heatmap = np.zeros((grid_size, grid_size), dtype=np.float32)
     for gy in range(grid_size):
@@ -372,6 +448,7 @@ def grid_occlusion_heatmap(
             mask = build_mask(grid_size, gy, gx)
             masked_frames = apply_mask_to_frames(frames, mask, fill_rgb)
             occluded_feature = extractor.extract(masked_frames)
+            occluded_feature = feature_normalizer.apply(occluded_feature)
             occluded_tensor = features_tensor.clone()
             occluded_tensor[0, 0, segment_index] = torch.from_numpy(occluded_feature).to(device)
             score = run_model(model, occluded_tensor, device)[segment_index].item()
@@ -392,23 +469,45 @@ def rise_occlusion_heatmap(
     fill_rgb: np.ndarray,
     device: torch.device,
     rng: np.random.Generator,
+    feature_normalizer: FeatureNormalizer,
 ) -> np.ndarray:
     accum = np.zeros((grid_size, grid_size), dtype=np.float32)
-    counts = np.zeros((grid_size, grid_size), dtype=np.float32)
 
     for _ in range(num_masks):
         mask = (rng.random((grid_size, grid_size)) < on_prob).astype(np.float32)
         masked_frames = apply_mask_to_frames(frames, mask, fill_rgb)
         occluded_feature = extractor.extract(masked_frames)
+        occluded_feature = feature_normalizer.apply(occluded_feature)
         occluded_tensor = features_tensor.clone()
         occluded_tensor[0, 0, segment_index] = torch.from_numpy(occluded_feature).to(device)
         score = run_model(model, occluded_tensor, device)[segment_index].item()
         delta = baseline_score - score
         accum += mask * delta
-        counts += mask
 
-    counts[counts == 0] = 1.0
-    return accum / counts
+    return accum / max(num_masks * on_prob, 1e-6)
+
+
+def fuse_heatmaps(heatmaps: List[np.ndarray]) -> np.ndarray:
+    if not heatmaps:
+        raise ValueError("No heatmaps available for fusion.")
+    fused = np.zeros_like(heatmaps[0])
+    for heatmap in heatmaps:
+        tmp = heatmap - heatmap.min()
+        max_val = tmp.max()
+        if max_val > 0:
+            tmp = tmp / max_val
+        fused += tmp
+    return fused / len(heatmaps)
+
+
+def top_p_mean(heatmap: np.ndarray, fraction: float) -> float:
+    if fraction <= 0.0:
+        return 0.0
+    flat = heatmap.flatten()
+    k = max(1, int(round(len(flat) * fraction)))
+    k = min(k, len(flat))
+    top_vals = np.partition(flat, -k)[-k:]
+    return float(np.mean(top_vals))
 
 
 def main() -> None:
@@ -420,6 +519,13 @@ def main() -> None:
     set_seeds(args.seed)
 
     features_np = load_video_features(cfg, args.video_name)
+    norm_mode = args.feature_norm if args.feature_norm is not None else getattr(cfg, "feature_norm", None)
+    stats_path = args.feature_stats if args.feature_stats is not None else getattr(cfg, "feature_stats", None)
+    feature_normalizer = FeatureNormalizer(norm_mode, stats_path)
+
+    if args.normalize_baseline and feature_normalizer.mode != "none":
+        features_np = np.apply_along_axis(feature_normalizer.apply, 1, features_np)
+
     num_segments = features_np.shape[0]
     if args.segment_index < 0 or args.segment_index >= num_segments:
         raise IndexError(
@@ -429,9 +535,20 @@ def main() -> None:
 
     features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
     segment_len = getattr(cfg, "segment_len", 16)
+    segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
+    start = args.segment_index * segment_stride
 
-    frames_root, videos_root = dataset_roots(cfg, args.split)
-    frames_list = load_segment_frames(args.video_name, args.segment_index, segment_len, frames_root, videos_root)
+    if args.video_path:
+        explicit_path = Path(args.video_path)
+        if explicit_path.is_dir():
+            frames_list = load_segment_from_frames_dir(explicit_path, start, segment_len)
+        elif explicit_path.is_file():
+            frames_list = load_segment_from_video_file(explicit_path, start, segment_len)
+        else:
+            raise FileNotFoundError(f"Specified video-path not found: {explicit_path}")
+    else:
+        frames_root, videos_root = dataset_roots(cfg, args.split)
+        frames_list = load_segment_frames(args.video_name, args.segment_index, segment_len, frames_root, videos_root)
     frames_np = collate_frames(frames_list)
 
     extractor = BackboneFeatureExtractor(
@@ -457,53 +574,90 @@ def main() -> None:
         print(f"[info] baseline score for snippet {args.segment_index}: {baseline_score:.6f}")
 
     rng = np.random.default_rng(args.seed)
+    output_root = Path(args.output_dir)
+    dest_dir = output_root / args.video_name / f"seg{args.segment_index:03d}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.masking == "grid":
-        grid_heatmap = grid_occlusion_heatmap(
-            features_tensor=features_tensor,
-            baseline_score=baseline_score,
-            segment_index=args.segment_index,
-            frames=frames_np,
-            extractor=extractor,
-            model=model,
-            grid_size=args.grid_size,
-            fill_rgb=fill_rgb,
-            device=device,
-        )
-    else:
-        grid_heatmap = rise_occlusion_heatmap(
-            features_tensor=features_tensor,
-            baseline_score=baseline_score,
-            segment_index=args.segment_index,
-            frames=frames_np,
-            extractor=extractor,
-            model=model,
-            grid_size=args.grid_size,
-            num_masks=args.num_masks,
-            on_prob=args.rise_on_prob,
-            fill_rgb=fill_rgb,
-            device=device,
-            rng=rng,
-        )
+    per_scale_heatmaps: List[Tuple[int, np.ndarray]] = []
 
+    for grid_size in args.grid_sizes:
+        if args.masking == "grid":
+            grid_heatmap = grid_occlusion_heatmap(
+                features_tensor=features_tensor,
+                baseline_score=baseline_score,
+                segment_index=args.segment_index,
+                frames=frames_np,
+                extractor=extractor,
+                model=model,
+                grid_size=grid_size,
+                fill_rgb=fill_rgb,
+                device=device,
+                feature_normalizer=feature_normalizer,
+            )
+        else:
+            grid_heatmap = rise_occlusion_heatmap(
+                features_tensor=features_tensor,
+                baseline_score=baseline_score,
+                segment_index=args.segment_index,
+                frames=frames_np,
+                extractor=extractor,
+                model=model,
+                grid_size=grid_size,
+                num_masks=args.num_masks,
+                on_prob=args.rise_on_prob,
+                fill_rgb=fill_rgb,
+                device=device,
+                rng=rng,
+                feature_normalizer=feature_normalizer,
+            )
+
+        if args.delta_relu:
+            grid_heatmap = np.maximum(grid_heatmap, 0.0)
+
+        frame_center = frames_np[len(frames_np) // 2]
+        heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
+
+        per_scale_heatmaps.append((grid_size, heatmap_up))
+
+        scale_base = f"{args.masking}_g{grid_size}"
+        np.save(dest_dir / f"{scale_base}_grid.npy", grid_heatmap)
+        np.save(dest_dir / f"{scale_base}_heatmap.npy", heatmap_up)
+        overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), heatmap_up)
+        cv2.imwrite(str(dest_dir / f"{scale_base}_overlay.png"), overlay)
+
+        if args.verbose:
+            max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
+            print(f"[info] grid {grid_size}: strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
+
+    fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
     frame_center = frames_np[len(frames_np) // 2]
-    frame_bgr = cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR)
-    heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
-    overlay = colorize_heatmap(frame_bgr, heatmap_up)
+    fused_overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), fused_heatmap)
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    base_name = f"{args.video_name}_seg{args.segment_index:03d}_{args.masking}"
+    fused_base = f"{args.masking}_fused"
+    np.save(dest_dir / f"{fused_base}_heatmap.npy", fused_heatmap)
+    cv2.imwrite(str(dest_dir / f"{fused_base}_overlay.png"), fused_overlay)
 
-    np.save(output_dir / f"{base_name}_grid_heatmap.npy", grid_heatmap)
-    np.save(output_dir / f"{base_name}_heatmap.npy", heatmap_up)
-    cv2.imwrite(str(output_dir / f"{base_name}_overlay.png"), overlay)
+    top_p_fraction = max(0.0, min(args.top_p, 1.0))
+    top_p_value = top_p_mean(fused_heatmap, top_p_fraction) if top_p_fraction > 0 else 0.0
+    fused_score = args.alpha * top_p_value + (1.0 - args.alpha) * baseline_score if top_p_fraction > 0 else baseline_score
+
+    with open(dest_dir / f"{fused_base}_meta.txt", "w") as meta:
+        meta.write(f"baseline_score: {baseline_score:.6f}\n")
+        meta.write(f"top_p_fraction: {top_p_fraction}\n")
+        meta.write(f"top_p_mean: {top_p_value:.6f}\n")
+        meta.write(f"alpha: {args.alpha:.3f}\n")
+        meta.write(f"fused_score: {fused_score:.6f}\n")
+        meta.write(f"grid_sizes: {args.grid_sizes}\n")
+        meta.write(f"masking: {args.masking}\n")
+        meta.write(f"segment_stride: {segment_stride}\n")
+        meta.write(f"feature_norm: {feature_normalizer.mode}\n")
 
     if args.verbose:
-        max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
-        print(f"[info] strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
-        print(f"[info] saved heatmap to {output_dir / f'{base_name}_overlay.png'}")
-
+        print(f"[info] fused heatmap saved to {dest_dir / f'{fused_base}_overlay.png'}")
+        if top_p_fraction > 0:
+            print(f"[info] top-{top_p_fraction*100:.1f}% mean: {top_p_value:.6f}, fused score: {fused_score:.6f}")
+        else:
+            print(f"[info] fused score equals baseline: {baseline_score:.6f}")
 
 if __name__ == "__main__":
     main()
