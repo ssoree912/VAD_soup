@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+
+"""Generate occlusion-based heatmaps for the anomaly detector.
+
+The script keeps the existing LANP pipeline intact: it reloads a trained
+`AD_Model`, perturbs a single video snippet by masking spatial regions inside
+the raw frames, re-extracts features for the masked snippet using the same 3D
+backbone, and measures how much the anomaly score changes. The accumulated
+score deltas become an importance map that is projected back onto the frame as
+an RGB heatmap.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Iterable, List, Tuple
+
+import cv2
+import numpy as np
+import torch
+import yaml
+from PIL import Image
+
+from model import AD_Model
+from utils import set_seeds
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BACKBONE_ROOT = REPO_ROOT / "video-classification-3d-cnn-pytorch"
+
+if str(BACKBONE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKBONE_ROOT))
+
+try:
+    from mean import get_mean as backbone_mean  # type: ignore
+    from model import generate_model as generate_backbone  # type: ignore
+    from spatial_transforms import (  # type: ignore
+        CenterCrop,
+        Compose,
+        Normalize,
+        Scale,
+        ToTensor,
+    )
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "Unable to import the backbone feature extractor utilities. "
+        "Make sure the 'video-classification-3d-cnn-pytorch' folder is present "
+        "next to this repository."
+    ) from exc
+finally:
+    # Restore the original module search path order.
+    if str(BACKBONE_ROOT) in sys.path:
+        sys.path.remove(str(BACKBONE_ROOT))
+        sys.path.append(str(BACKBONE_ROOT))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Occlusion/RISE-style localization for LANP anomaly scores."
+    )
+    parser.add_argument("--config", required=True, help="Path to YAML config used for training.")
+    parser.add_argument("--checkpoint", required=True, help="Trained AD_Model checkpoint (.pt).")
+    parser.add_argument("--video-name", required=True, help="Video identifier (e.g. 01_0015).")
+    parser.add_argument("--segment-index", type=int, required=True, help="Temporal snippet index to explain.")
+    parser.add_argument("--split", choices=["train", "test"], default="test", help="Dataset split containing the video.")
+    parser.add_argument("--backbone-weights", required=True, help="Weights file for the 3D backbone (ResNeXt).")
+    parser.add_argument("--grid-size", type=int, default=8, help="Number of grid cells along each axis.")
+    parser.add_argument("--masking", choices=["grid", "rise"], default="grid", help="Occlusion strategy.")
+    parser.add_argument("--num-masks", type=int, default=64, help="Number of random masks for RISE.")
+    parser.add_argument("--rise-on-prob", type=float, default=0.5, help="Probability that a cell stays visible in each RISE mask.")
+    parser.add_argument("--gaussian-sigma", type=float, default=1.0, help="Sigma for Gaussian smoothing on the upsampled heatmap.")
+    parser.add_argument("--output-dir", default="visualizations/heatmaps", help="Directory to store heatmap outputs.")
+    parser.add_argument("--device", default=None, help="Device override (cpu / cuda). Defaults to config/device if available.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for mask sampling.")
+    parser.add_argument("--fill-mode", choices=["mean", "zero"], default="mean", help="Pixel fill value inside masked regions.")
+    parser.add_argument("--model-name", default="resnext", help="Backbone model family (default: resnext).")
+    parser.add_argument("--model-depth", type=int, default=101, help="Backbone depth (default: 101).")
+    parser.add_argument("--resnext-cardinality", type=int, default=32, help="ResNeXt cardinality (default: 32).")
+    parser.add_argument("--resnet-shortcut", default="B", help="Shortcut type used when training features (default: B).")
+    parser.add_argument("--sample-size", type=int, default=112, help="Spatial crop size used for feature extraction.")
+    parser.add_argument("--verbose", action="store_true", help="Print intermediate diagnostics.")
+    return parser.parse_args()
+
+
+def load_yaml_config(path: str) -> dict:
+    with open(path, "r") as handle:
+        cfg = yaml.safe_load(handle)
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Configuration file {path} did not produce a dictionary.")
+    return cfg
+
+
+def resolve_device(preferred: str | None) -> torch.device:
+    if preferred:
+        return torch.device(preferred)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+def to_namespace(cfg: dict) -> SimpleNamespace:
+    return SimpleNamespace(**cfg)
+
+
+def load_video_features(cfg: SimpleNamespace, video_name: str) -> np.ndarray:
+    feature_path = Path(cfg.feature_path) / f"{video_name}{cfg.feature_name_end}"
+    if not feature_path.exists():
+        raise FileNotFoundError(f"Feature file not found: {feature_path}")
+
+    features = np.load(feature_path)
+    if features.ndim == 3:
+        features = features.mean(axis=1)
+    if features.ndim != 2:
+        raise ValueError(f"Unexpected feature shape {features.shape} for {video_name}")
+
+    return features.astype(np.float32, copy=False)
+
+
+def dataset_roots(cfg: SimpleNamespace, split: str) -> Tuple[Path, Path]:
+    dataset_root = Path(cfg.feature_path).resolve().parent
+    split_root = dataset_root / ("testing" if split == "test" else "training")
+    frames_root = split_root / "frames"
+    videos_root = split_root / "videos"
+    return frames_root, videos_root
+
+
+def load_segment_frames(
+    video_name: str,
+    segment_index: int,
+    segment_len: int,
+    frames_root: Path,
+    videos_root: Path,
+) -> List[np.ndarray]:
+    start = segment_index * segment_len
+    frames_dir = frames_root / video_name
+
+    if frames_dir.is_dir():
+        frame_files = sorted(p for p in frames_dir.glob("*.jpg") if p.is_file())
+        if not frame_files:
+            raise FileNotFoundError(f"No frame images found in {frames_dir}")
+
+        frames: List[np.ndarray] = []
+        for offset in range(segment_len):
+            idx = min(start + offset, len(frame_files) - 1)
+            img = cv2.imread(str(frame_files[idx]), cv2.IMREAD_COLOR)
+            if img is None:
+                raise RuntimeError(f"Failed to read frame {frame_files[idx]}")
+            frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        return frames
+
+    video_path = videos_root / f"{video_name}.avi"
+    if not video_path.exists():
+        raise FileNotFoundError(
+            f"Neither frames ({frames_dir}) nor video file ({video_path}) found."
+        )
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Unable to open video file {video_path}")
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or (start + segment_len)
+    frames: List[np.ndarray] = []
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, float(start))
+    for offset in range(segment_len):
+        ret, frame = cap.read()
+        if not ret:
+            # Repeat the last available frame if we run out.
+            if frames:
+                frames.append(frames[-1].copy())
+            else:
+                raise RuntimeError(f"Video {video_path} ended before reaching snippet start.")
+        else:
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+    cap.release()
+    if not frames:
+        raise RuntimeError(f"Unable to retrieve frames from {video_path}")
+
+    return frames
+
+
+def collate_frames(frames: Iterable[np.ndarray]) -> np.ndarray:
+    arr = np.stack(frames, axis=0)
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+    return arr
+
+
+def build_mask(
+    grid_size: int,
+    off_y: int,
+    off_x: int,
+) -> np.ndarray:
+    mask = np.ones((grid_size, grid_size), dtype=np.float32)
+    mask[off_y, off_x] = 0.0
+    return mask
+
+
+def resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
+    if mask.shape == (height, width):
+        return mask
+    resized = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+    return resized.astype(np.float32)
+
+
+def apply_mask_to_frames(
+    frames: np.ndarray,
+    mask: np.ndarray,
+    fill_rgb: np.ndarray,
+) -> List[np.ndarray]:
+    h, w = frames.shape[1:3]
+    mask_img = resize_mask(mask, w, h)
+    masked = []
+    for frame in frames:
+        frame_f = frame.astype(np.float32)
+        masked_frame = frame_f * mask_img[..., None] + fill_rgb[None, None, :] * (1.0 - mask_img[..., None])
+        masked.append(masked_frame.astype(np.uint8))
+    return masked
+
+
+class BackboneFeatureExtractor:
+    def __init__(
+        self,
+        weights_path: Path,
+        device: torch.device,
+        sample_duration: int,
+        sample_size: int,
+        model_name: str,
+        model_depth: int,
+        resnext_cardinality: int,
+        resnet_shortcut: str,
+    ) -> None:
+        if not weights_path.exists():
+            raise FileNotFoundError(f"Backbone weights not found: {weights_path}")
+
+        opt = SimpleNamespace()
+        opt.model_name = model_name
+        opt.model_depth = model_depth
+        opt.arch = f"{opt.model_name}-{opt.model_depth}"
+        opt.resnext_cardinality = resnext_cardinality
+        opt.resnet_shortcut = resnet_shortcut
+        opt.n_classes = 400
+        opt.sample_size = sample_size
+        opt.sample_duration = sample_duration
+        opt.mode = "feature"
+        opt.mean = backbone_mean()
+        opt.batch_size = 1
+        opt.n_threads = 1
+        opt.no_cuda = device.type == "cpu"
+
+        self.device = device
+        self.opt = opt
+        self.model = generate_backbone(opt)
+        state = torch.load(str(weights_path), map_location=device)
+        state_dict = state["state_dict"] if isinstance(state, dict) and "state_dict" in state else state
+
+        model_is_parallel = isinstance(self.model, torch.nn.DataParallel)
+        state_is_parallel = any(k.startswith("module.") for k in state_dict.keys())
+
+        if model_is_parallel and not state_is_parallel:
+            state_dict = {f"module.{k}": v for k, v in state_dict.items()}
+        if not model_is_parallel and state_is_parallel:
+            state_dict = {k[len("module.") :]: v for k, v in state_dict.items()}
+
+        self.model.load_state_dict(state_dict, strict=True)
+        self.model.eval()
+
+        if not opt.no_cuda:
+            self.model.to(device)
+
+        self.fill_rgb = np.array(opt.mean, dtype=np.float32)
+        self.sample_duration = sample_duration
+        self.spatial_transform = Compose(
+            [
+                Scale(opt.sample_size),
+                CenterCrop(opt.sample_size),
+                ToTensor(),
+                Normalize(opt.mean, [1.0, 1.0, 1.0]),
+            ]
+        )
+
+    def _pad_frames(self, frames: List[np.ndarray]) -> List[np.ndarray]:
+        if len(frames) >= self.sample_duration:
+            return frames[: self.sample_duration]
+        padded = list(frames)
+        while len(padded) < self.sample_duration:
+            padded.append(padded[-1])
+        return padded
+
+    def extract(self, frames: List[np.ndarray]) -> np.ndarray:
+        frames = self._pad_frames(frames)
+        clip_tensors = []
+        for frame in frames:
+            pil_image = Image.fromarray(frame, mode="RGB")
+            clip_tensors.append(self.spatial_transform(pil_image))
+        clip_tensor = torch.stack(clip_tensors, dim=0).permute(1, 0, 2, 3).unsqueeze(0)
+        clip_tensor = clip_tensor.to(self.device).type(torch.float32)
+
+        with torch.no_grad():
+            outputs = self.model(clip_tensor)
+
+        if isinstance(outputs, (tuple, list)):
+            outputs = outputs[0]
+
+        if outputs.dim() > 2:
+            outputs = outputs.view(outputs.size(0), -1)
+
+        feature = outputs.squeeze(0).detach().cpu().numpy()
+        return feature.astype(np.float32, copy=False)
+
+
+def prepare_model(cfg: SimpleNamespace, checkpoint: Path, device: torch.device) -> AD_Model:
+    model = AD_Model(cfg.feature_dim, 512, cfg.dropout_rate)
+    state = torch.load(str(checkpoint), map_location=device)
+    state_dict = state["state_dict"] if isinstance(state, dict) and "state_dict" in state else state
+    model.load_state_dict(state_dict, strict=True)
+    model.to(device)
+    model.eval()
+    return model
+
+
+def run_model(model: AD_Model, features: torch.Tensor, device: torch.device) -> torch.Tensor:
+    with torch.no_grad():
+        scores = model(features.to(device))
+    return scores.squeeze(0)
+
+
+def gaussian_blur(heatmap: np.ndarray, sigma: float) -> np.ndarray:
+    if sigma <= 0:
+        return heatmap
+    ksize = max(3, int(math.ceil(sigma * 6)) | 1)
+    blurred = cv2.GaussianBlur(heatmap, (ksize, ksize), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_REFLECT)
+    return blurred
+
+
+def upscale_heatmap(grid_heatmap: np.ndarray, frame_shape: Tuple[int, int], sigma: float) -> np.ndarray:
+    height, width = frame_shape
+    upsampled = cv2.resize(grid_heatmap, (width, height), interpolation=cv2.INTER_LINEAR)
+    upsampled = gaussian_blur(upsampled, sigma)
+    upsampled -= upsampled.min()
+    max_val = upsampled.max()
+    if max_val > 0:
+        upsampled /= max_val
+    return upsampled
+
+
+def colorize_heatmap(frame_bgr: np.ndarray, heatmap: np.ndarray) -> np.ndarray:
+    heat_uint8 = np.clip(heatmap * 255.0, 0, 255).astype(np.uint8)
+    colored = cv2.applyColorMap(heat_uint8, cv2.COLORMAP_JET)
+    overlay = cv2.addWeighted(frame_bgr, 0.5, colored, 0.5, 0)
+    return overlay
+
+
+def grid_occlusion_heatmap(
+    features_tensor: torch.Tensor,
+    baseline_score: float,
+    segment_index: int,
+    frames: np.ndarray,
+    extractor: BackboneFeatureExtractor,
+    model: AD_Model,
+    grid_size: int,
+    fill_rgb: np.ndarray,
+    device: torch.device,
+) -> np.ndarray:
+    grid_heatmap = np.zeros((grid_size, grid_size), dtype=np.float32)
+    for gy in range(grid_size):
+        for gx in range(grid_size):
+            mask = build_mask(grid_size, gy, gx)
+            masked_frames = apply_mask_to_frames(frames, mask, fill_rgb)
+            occluded_feature = extractor.extract(masked_frames)
+            occluded_tensor = features_tensor.clone()
+            occluded_tensor[0, 0, segment_index] = torch.from_numpy(occluded_feature).to(device)
+            score = run_model(model, occluded_tensor, device)[segment_index].item()
+            grid_heatmap[gy, gx] = baseline_score - score
+    return grid_heatmap
+
+
+def rise_occlusion_heatmap(
+    features_tensor: torch.Tensor,
+    baseline_score: float,
+    segment_index: int,
+    frames: np.ndarray,
+    extractor: BackboneFeatureExtractor,
+    model: AD_Model,
+    grid_size: int,
+    num_masks: int,
+    on_prob: float,
+    fill_rgb: np.ndarray,
+    device: torch.device,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    accum = np.zeros((grid_size, grid_size), dtype=np.float32)
+    counts = np.zeros((grid_size, grid_size), dtype=np.float32)
+
+    for _ in range(num_masks):
+        mask = (rng.random((grid_size, grid_size)) < on_prob).astype(np.float32)
+        masked_frames = apply_mask_to_frames(frames, mask, fill_rgb)
+        occluded_feature = extractor.extract(masked_frames)
+        occluded_tensor = features_tensor.clone()
+        occluded_tensor[0, 0, segment_index] = torch.from_numpy(occluded_feature).to(device)
+        score = run_model(model, occluded_tensor, device)[segment_index].item()
+        delta = baseline_score - score
+        accum += mask * delta
+        counts += mask
+
+    counts[counts == 0] = 1.0
+    return accum / counts
+
+
+def main() -> None:
+    args = parse_args()
+    cfg_dict = load_yaml_config(args.config)
+    cfg = to_namespace(cfg_dict)
+
+    device = resolve_device(args.device or cfg_dict.get("device"))
+    set_seeds(args.seed)
+
+    features_np = load_video_features(cfg, args.video_name)
+    num_segments = features_np.shape[0]
+    if args.segment_index < 0 or args.segment_index >= num_segments:
+        raise IndexError(
+            f"segment-index {args.segment_index} out of range for video {args.video_name} "
+            f"(available snippets: 0..{num_segments - 1})."
+        )
+
+    features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
+    segment_len = getattr(cfg, "segment_len", 16)
+
+    frames_root, videos_root = dataset_roots(cfg, args.split)
+    frames_list = load_segment_frames(args.video_name, args.segment_index, segment_len, frames_root, videos_root)
+    frames_np = collate_frames(frames_list)
+
+    extractor = BackboneFeatureExtractor(
+        weights_path=Path(args.backbone_weights),
+        device=device,
+        sample_duration=segment_len,
+        sample_size=args.sample_size,
+        model_name=args.model_name,
+        model_depth=args.model_depth,
+        resnext_cardinality=args.resnext_cardinality,
+        resnet_shortcut=args.resnet_shortcut,
+    )
+
+    fill_rgb = extractor.fill_rgb.copy()
+    if args.fill_mode == "zero":
+        fill_rgb.fill(0.0)
+
+    model = prepare_model(cfg, Path(args.checkpoint), device)
+    baseline_scores = run_model(model, features_tensor, device)
+    baseline_score = baseline_scores[args.segment_index].item()
+
+    if args.verbose:
+        print(f"[info] baseline score for snippet {args.segment_index}: {baseline_score:.6f}")
+
+    rng = np.random.default_rng(args.seed)
+
+    if args.masking == "grid":
+        grid_heatmap = grid_occlusion_heatmap(
+            features_tensor=features_tensor,
+            baseline_score=baseline_score,
+            segment_index=args.segment_index,
+            frames=frames_np,
+            extractor=extractor,
+            model=model,
+            grid_size=args.grid_size,
+            fill_rgb=fill_rgb,
+            device=device,
+        )
+    else:
+        grid_heatmap = rise_occlusion_heatmap(
+            features_tensor=features_tensor,
+            baseline_score=baseline_score,
+            segment_index=args.segment_index,
+            frames=frames_np,
+            extractor=extractor,
+            model=model,
+            grid_size=args.grid_size,
+            num_masks=args.num_masks,
+            on_prob=args.rise_on_prob,
+            fill_rgb=fill_rgb,
+            device=device,
+            rng=rng,
+        )
+
+    frame_center = frames_np[len(frames_np) // 2]
+    frame_bgr = cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR)
+    heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
+    overlay = colorize_heatmap(frame_bgr, heatmap_up)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base_name = f"{args.video_name}_seg{args.segment_index:03d}_{args.masking}"
+
+    np.save(output_dir / f"{base_name}_grid_heatmap.npy", grid_heatmap)
+    np.save(output_dir / f"{base_name}_heatmap.npy", heatmap_up)
+    cv2.imwrite(str(output_dir / f"{base_name}_overlay.png"), overlay)
+
+    if args.verbose:
+        max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
+        print(f"[info] strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
+        print(f"[info] saved heatmap to {output_dir / f'{base_name}_overlay.png'}")
+
+
+if __name__ == "__main__":
+    main()
