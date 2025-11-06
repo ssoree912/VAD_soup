@@ -13,3 +13,5 @@ ckpts/
 kfold_runs/
 reports/
 results/
+ckp/
+visualizations/

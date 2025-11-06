@@ -28,7 +28,6 @@ class AD_Model(nn.Module):
         logits = out.view(bs, ncrops, -1).mean(1)
 
         return logits
-
 # cm
 class Memory_module(nn.Module):
     def __init__(self, dataset, device):

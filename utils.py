@@ -55,9 +55,30 @@ def cal_rec_auc(scores,labels):
     auc = metrics.auc(fpr,tpr)
     return auc
 
+def _to_1d_array(values, dtype):
+    """Flatten potentially nested metric inputs into a 1D numpy array."""
+    def _collect(item, collector):
+        if isinstance(item, np.ndarray):
+            if item.dtype == object:
+                _collect(item.tolist(), collector)
+            else:
+                collector.extend(item.reshape(-1).tolist())
+        elif isinstance(item, (list, tuple)):
+            for element in item:
+                _collect(element, collector)
+        else:
+            collector.append(item)
+
+    if isinstance(values, np.ndarray) and values.dtype != object:
+        return values.reshape(-1).astype(dtype, copy=False)
+
+    flat_list = []
+    _collect(values, flat_list)
+    return np.asarray(flat_list, dtype=dtype)
+
 def calc_metrics(total_scores, total_labels):
-    total_scores = np.array(total_scores)
-    total_labels = np.array(total_labels)
+    total_scores = _to_1d_array(total_scores, np.float32)
+    total_labels = _to_1d_array(total_labels, np.int64)
 
     pr_auc = cal_pr_auc(total_scores, total_labels)
     rec_auc = cal_rec_auc(total_scores, total_labels)

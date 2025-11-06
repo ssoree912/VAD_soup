@@ -286,7 +286,7 @@ class PruningHandler:
             self.stored_mask[name] = mask_tensor.detach().cpu().clone().to(torch.float32)
 
         if self.logger:
-            self.logger.info('Applied pruning: magnitude {:.2f}%, random {:.2f}%, pruned {}/{} params ({:.2f}%).'.
+            self.logger.info('Applied pruning: magnitude {:.2f}%, ran dom {:.2f}%, pruned {}/{} params ({:.2f}%).'.
                              format(self.magnitude_ratio*100, self.random_ratio*100,
                                     self.pruned_params, self.total_params,
                                     (self.pruned_params / self.total_params) * 100 if self.total_params else 0.0))
