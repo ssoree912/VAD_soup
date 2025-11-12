@@ -2,14 +2,129 @@ import torch
 
 import os
 import shutil
+import sys
+import json
 import numpy as np
 import yaml
 import argparse
+from typing import Dict, List, Optional
 
 from utils import *
 from model import AD_Model, Memory_module
 from loss import Loss_bce
 from data.dataset_loader import CreateDataset
+from lanp.train import blend_scores, update_reweight
+from post.score_fusion import fuse_scores
+
+
+def _maybe_unpack_object_array(array):
+    if isinstance(array, np.ndarray) and array.dtype == object:
+        if array.shape == ():
+            return array.item()
+        if array.size == 1:
+            return array.flat[0]
+    return None
+
+
+def load_score_dictionary(path: str) -> Dict[str, np.ndarray]:
+    payload = np.load(path, allow_pickle=True)
+    data: Dict[str, np.ndarray]
+    if isinstance(payload, np.lib.npyio.NpzFile):
+        data_dict = None
+        preferred = ["snippet_scores", "scores", "data", "arr_0", "frame_scores"]
+        for key in preferred:
+            if key in payload.files:
+                candidate = _maybe_unpack_object_array(payload[key])
+                if isinstance(candidate, dict):
+                    data_dict = candidate
+                    break
+        if data_dict is None:
+            for key in payload.files:
+                candidate = _maybe_unpack_object_array(payload[key])
+                if isinstance(candidate, dict):
+                    data_dict = candidate
+                    break
+        if data_dict is None:
+            data = {k: payload[k] for k in payload.files}
+        else:
+            data = data_dict
+    elif isinstance(payload, np.ndarray) and payload.dtype == object:
+        data = payload.item()
+    elif isinstance(payload, dict):
+        data = payload
+    else:
+        raise ValueError(f"Unsupported ROI score container in {path}")
+
+    score_map: Dict[str, np.ndarray] = {}
+    for video, values in data.items():
+        arr = np.asarray(values, dtype=np.float32).reshape(-1)
+        score_map[video] = arr
+    return score_map
+
+
+def save_dict_payload(path: Optional[str], data: Dict[str, np.ndarray]):
+    if not path:
+        return
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    if path.endswith(".npz"):
+        np.savez_compressed(path, data=np.array([data], dtype=object))
+    else:
+        np.save(path, data, allow_pickle=True)
+
+
+def snippet_to_frame_scores(
+    snippet_scores: Dict[str, np.ndarray],
+    labels_dist: Dict[str, np.ndarray],
+) -> Dict[str, np.ndarray]:
+    frame_map: Dict[str, np.ndarray] = {}
+    for video, scores in snippet_scores.items():
+        label_chunks = labels_dist.get(video)
+        if label_chunks is None:
+            continue
+        frames: List[float] = []
+        padded_scores = np.asarray(scores).reshape(-1)
+        for idx, chunk in enumerate(label_chunks):
+            if idx >= len(padded_scores):
+                break
+            repeat = len(chunk)
+            frames.extend([float(padded_scores[idx])] * repeat)
+        frame_map[video] = np.asarray(frames, dtype=np.float32)
+    return frame_map
+
+
+def export_eval_artifacts(
+    snippet_scores: Dict[str, np.ndarray],
+    labels_dist: Dict[str, np.ndarray],
+    frame_path: Optional[str],
+    snippet_path: Optional[str],
+):
+    if snippet_path:
+        save_dict_payload(snippet_path, snippet_scores)
+    if frame_path:
+        frame_scores = snippet_to_frame_scores(snippet_scores, labels_dist)
+        save_dict_payload(frame_path, frame_scores)
+
+
+def append_metrics_json(path: Optional[str], record: Dict[str, object]):
+    if not path:
+        return
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    existing: List[Dict[str, object]] = []
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                existing = json.load(fh)
+                if not isinstance(existing, list):
+                    existing = []
+        except Exception:
+            existing = []
+    existing.append(record)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(existing, fh, indent=2)
 
 def save_state_and_mask(model, path, pruning_handler=None):
     torch.save(model.state_dict(), path)
@@ -63,7 +178,8 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_
 
         return avg_loss
 
-def test(model, test_loader, device, is_train_sample=False):
+def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional[Dict[str, np.ndarray]] = None,
+         fusion_method: str = "none", fusion_alpha: float = 0.5):
     if is_train_sample:
         with torch.no_grad():
             model.eval()
@@ -82,22 +198,30 @@ def test(model, test_loader, device, is_train_sample=False):
     else:
         with torch.no_grad():
             model.eval()
-            total_scores = []
-            total_labels = []
             scores_dist = {}
+            labels_dist = {}
             for features, label_frames, video_name in test_loader:
                 features = features.type(torch.float).to(device)
                 label_frames = label_frames.type(torch.float).to(device)
                 outputs = model(features)
 
                 scores = outputs.squeeze().cpu().numpy()
-                scores_dist[video_name[0]] = scores
+                video_key = video_name[0]
+                scores_dist[video_key] = scores
+                labels_dist[video_key] = label_frames[0].detach().cpu().numpy().astype(int)
 
-                for score, label in zip(scores, label_frames[0]):
-                    score = [score] * args.segment_len
-                    label = label.detach().cpu().numpy().astype(int).tolist()
-                    total_scores.extend(score)
-                    total_labels.extend(label)
+        if roi_scores is not None and fusion_method.lower() != "none":
+            scores_dist = fuse_scores(scores_dist, roi_scores, fusion_method, fusion_alpha)
+
+        total_scores = []
+        total_labels = []
+        for video, snippet_scores in scores_dist.items():
+            label_chunks = labels_dist.get(video)
+            if label_chunks is None:
+                continue
+            for score, label in zip(snippet_scores, label_chunks):
+                total_scores.extend([score] * len(label))
+                total_labels.extend(label.astype(int).tolist())
 
         total_score_frames = np.array(total_scores)
         total_label_frames = np.array(total_labels)
@@ -107,7 +231,7 @@ def test(model, test_loader, device, is_train_sample=False):
         logger.info('Testing: pr@ {:.2f}%, '
               'auc@ {:.2f}% \t'.format(prauc_frames, rocauc_frames))
         
-        return scores_dist, prauc_frames, rocauc_frames
+        return scores_dist, prauc_frames, rocauc_frames, labels_dist
 
 def save_run_config(args, ckpt_path, logger):
     config_dest = os.path.join(ckpt_path, 'config_used.yaml')
@@ -423,6 +547,25 @@ def parse_args():
     parser.add_argument('--no_save_threshold_checkpoints', dest='save_threshold_checkpoints', action='store_false',
                         help='Disable saving checkpoint files for every threshold hit (default)')
     parser.set_defaults(save_threshold_checkpoints=False)
+    parser.add_argument('--roi_scores_path', type=str, default=None,
+                        help='Path to npz/npy containing per-video ROI snippet scores.')
+    parser.add_argument('--roi_score_fusion', type=str, default='none',
+                        choices=['none', 'max', 'weighted'],
+                        help='Fusion method for ROI vs frame scores during evaluation.')
+    parser.add_argument('--roi_score_alpha', type=float, default=0.5,
+                        help='Alpha for weighted ROI/frame fusion (ROI weight).')
+    parser.add_argument('--roi_reweight_lambda', type=float, default=None,
+                        help='Blend factor for ROI/global loss re-weighting (requires --roi_scores_path).')
+    parser.add_argument('--save_snippet_scores_path', type=str, default=None,
+                        help='Optional path to save snippet-level anomaly scores during evaluation.')
+    parser.add_argument('--save_frame_scores_path', type=str, default=None,
+                        help='Optional path to save frame-level anomaly scores during evaluation.')
+    parser.add_argument('--save_memory_path', type=str, default=None,
+                        help='Optional path to export the normal memory vectors after initialization.')
+    parser.add_argument('--eval_only', action='store_true',
+                        help='Skip training and only run evaluation/export once after loading data.')
+    parser.add_argument('--metrics_json_path', type=str, default=None,
+                        help='Optional JSON file to append ROC/PR metrics for each evaluation step.')
 
     if config_args.config_file:
         with open(config_args.config_file, 'r') as f:
@@ -500,13 +643,18 @@ if __name__ == '__main__':
         logger.info('Early unprune scheduled after epoch {} (ratio {:.2f}).'.format(unprune_epoch, ratio))
 
     test_loader, train_loader, train_eval_loader, _ = CreateDataset(args, logger)
+    roi_snippet_scores = None
+    if args.roi_scores_path:
+        roi_snippet_scores = load_score_dictionary(args.roi_scores_path)
+        logger.info('Loaded ROI snippet scores from {} ({} videos).'.format(
+            args.roi_scores_path, len(roi_snippet_scores)))
     
     '''load pretrained model'''
     if args.pretrained_path is not None:
         logger.info('load the pretrained model....')
         model.load_state_dict(torch.load(args.pretrained_ckpt))
         param_str_test = args.pretrained_ckpt.strip().split('/')[-2]
-        scores_dict, _, _ = test(model, test_loader=test_loader, device=device)
+        scores_dict, _, _, _ = test(model, test_loader=test_loader, device=device)
         np.save('./test_results/{}/{}_test.npy'.format(args.dataset, param_str_test[-24:-5]), scores_dict)
         scores_dict = test(model=model, test_loader=train_eval_loader, device=device, is_train_sample=True)
         np.save('./test_results/{}/{}_train.npy'.format(args.dataset, param_str_test[-24:-5]), scores_dict)
@@ -524,6 +672,49 @@ if __name__ == '__main__':
     memory = Memory_module(train_loader.dataset, device)
     updated_tag = memory.update_dataloader()
     logger.info(memory.logger_info)
+    if args.save_memory_path:
+        save_dict_payload(args.save_memory_path, {"normal_memory": memory.normal_memory.detach().cpu().numpy()})
+
+    if args.roi_reweight_lambda is not None:
+        if roi_snippet_scores is None:
+            raise ValueError("--roi_reweight_lambda requires --roi_scores_path to be set.")
+        dataset_train = train_loader.dataset
+        global_scores = {video: info['reweight'] for video, info in dataset_train.video_info_dict.items()}
+        blended_scores = blend_scores(global_scores, roi_snippet_scores, args.roi_reweight_lambda)
+        update_reweight(dataset_train, blended_scores)
+        logger.info('Applied ROI/global score blending to training reweights (lambda={:.2f}).'.format(
+            args.roi_reweight_lambda))
+
+    if args.eval_only:
+        fusion_scores = roi_snippet_scores if (roi_snippet_scores is not None and args.roi_score_fusion != 'none') else None
+        scores_dist, test_prauc, test_rocauc, labels_snapshot = test(
+            model=model,
+            test_loader=test_loader,
+            device=device,
+            roi_scores=fusion_scores,
+            fusion_method=args.roi_score_fusion,
+            fusion_alpha=args.roi_score_alpha,
+        )
+        logger.info('Eval-only: pr@ {:.2f}%, auc@ {:.2f}%'.format(test_prauc, test_rocauc))
+        if args.save_frame_scores_path or args.save_snippet_scores_path:
+            export_eval_artifacts(
+                scores_dist,
+                labels_snapshot,
+                args.save_frame_scores_path,
+                args.save_snippet_scores_path,
+            )
+        append_metrics_json(
+            args.metrics_json_path,
+            {
+                "stage": "eval_only",
+                "epoch": 0,
+                "pr_auc": float(test_prauc),
+                "roc_auc": float(test_rocauc),
+            },
+        )
+        if args.use_wandb and wandb_run is not None:
+            wandb.log({'eval_only/pr_auc': test_prauc, 'eval_only/roc_auc': test_rocauc}, step=0)
+        sys.exit(0)
     
     if args.use_wandb and wandb_run is not None:
         initial_l1, initial_l2, initial_abs_max = compute_weight_statistics(model)
@@ -559,7 +750,31 @@ if __name__ == '__main__':
             wandb.log(log_payload, step=epoch)
             
         if epoch % args.test_freq == 0:
-            scores_dist, test_prauc, test_rocauc = test(model=model, test_loader=test_loader, device=device)
+            fusion_scores = roi_snippet_scores if (roi_snippet_scores is not None and args.roi_score_fusion != 'none') else None
+            scores_dist, test_prauc, test_rocauc, labels_snapshot = test(
+                model=model,
+                test_loader=test_loader,
+                device=device,
+                roi_scores=fusion_scores,
+                fusion_method=args.roi_score_fusion,
+                fusion_alpha=args.roi_score_alpha,
+            )
+            if args.save_frame_scores_path or args.save_snippet_scores_path:
+                export_eval_artifacts(
+                    scores_dist,
+                    labels_snapshot,
+                    args.save_frame_scores_path,
+                    args.save_snippet_scores_path,
+                )
+            append_metrics_json(
+                args.metrics_json_path,
+                {
+                    "stage": "val",
+                    "epoch": epoch,
+                    "pr_auc": float(test_prauc),
+                    "roc_auc": float(test_rocauc),
+                },
+            )
             if args.use_wandb and wandb_run is not None:
                 val_payload = {'epoch': epoch,
                                'val/pr_auc': test_prauc,
@@ -615,3 +830,16 @@ if __name__ == '__main__':
             if pruning_handler.release_epoch is not None:
                 wandb_run.summary['pruning/release_epoch'] = pruning_handler.release_epoch
         wandb.finish()
+
+    append_metrics_json(
+        args.metrics_json_path,
+        {
+            "stage": "summary",
+            "best_val_roc_auc": float(best_AUC),
+            "best_val_pr_auc": float(best_PR),
+            "best_epoch_auc": int(best_epoch_AUC),
+            "best_epoch_pr": int(best_epoch_PR),
+            "best_auc_checkpoint": best_auc_path,
+            "best_pr_checkpoint": best_pr_path,
+        },
+    )

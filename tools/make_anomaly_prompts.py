@@ -22,6 +22,9 @@ try:
 except ImportError as exc:  # pragma: no cover - faiss is required
     raise ImportError("faiss is required for nearest-neighbour scoring") from exc
 
+# Import shared robust filter utilities
+from post.robust_filter import build_tracks, _count_support, _iou_xyxy, _greedy_match
+
 
 def _load_object_list(path: Path) -> List[np.ndarray]:
     arr = np.load(path, allow_pickle=True)
@@ -188,90 +191,7 @@ def _center_xyxy(box: np.ndarray) -> List[float]:
     return [float(0.5 * (box[0] + box[2])), float(0.5 * (box[1] + box[3]))]
 
 
-def _iou_xyxy(a: np.ndarray, b: np.ndarray) -> float:
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    iw = max(0.0, min(ax2, bx2) - max(ax1, bx1))
-    ih = max(0.0, min(ay2, by2) - max(ay1, by1))
-    inter = iw * ih
-    if inter <= 0:
-        return 0.0
-    area_a = max(1e-6, (ax2 - ax1) * (ay2 - ay1))
-    area_b = max(1e-6, (bx2 - bx1) * (by2 - by1))
-    return float(inter / (area_a + area_b - inter))
-
-
-def _greedy_match(prev_boxes: np.ndarray, curr_boxes: np.ndarray, iou_thr: float) -> List[int]:
-    if prev_boxes.size == 0 or curr_boxes.size == 0:
-        return [-1] * len(curr_boxes)
-    assigned: List[int] = [-1] * len(curr_boxes)
-    used_prev = set()
-    for ci, cbox in enumerate(curr_boxes):
-        best_i, best_v = -1, 0.0
-        for pi, pbox in enumerate(prev_boxes):
-            if pi in used_prev:
-                continue
-            iou = _iou_xyxy(pbox, cbox)
-            if iou > best_v:
-                best_v, best_i = iou, pi
-        if best_v >= iou_thr:
-            assigned[ci] = best_i
-            used_prev.add(best_i)
-    return assigned
-
-
-def _build_tracks_per_video(frames_boxes: List[np.ndarray], iou_thr: float) -> List[List[int]]:
-    per_frame_tids: List[List[int]] = []
-    prev_map: Dict[int, int] = {}
-    next_tid = 0
-    for t, boxes in enumerate(frames_boxes):
-        tids = [-1] * len(boxes)
-        if t == 0:
-            for i in range(len(boxes)):
-                tids[i] = next_tid
-                next_tid += 1
-            prev_map = {i: tids[i] for i in range(len(boxes))}
-            per_frame_tids.append(tids)
-            continue
-        prev_boxes = frames_boxes[t - 1]
-        match = _greedy_match(prev_boxes, boxes, iou_thr)
-        new_prev_map = {}
-        for i, prev_idx in enumerate(match):
-            if prev_idx >= 0 and prev_idx in prev_map:
-                tids[i] = prev_map[prev_idx]
-            else:
-                tids[i] = next_tid
-                next_tid += 1
-            new_prev_map[i] = tids[i]
-        prev_map = new_prev_map
-        per_frame_tids.append(tids)
-    return per_frame_tids
-
-
-def _count_support(
-    frames_boxes: List[np.ndarray],
-    per_frame_tids: List[List[int]],
-    target_tid: int,
-    ref_frame: int,
-    ref_det: int,
-    window: int,
-    iou_thr: float,
-    direction: int,
-) -> int:
-    count = 0
-    ref_box = frames_boxes[ref_frame][ref_det]
-    for offset in range(1, window + 1):
-        idx = ref_frame + direction * offset
-        if idx < 0 or idx >= len(frames_boxes):
-            break
-        tids = per_frame_tids[idx]
-        boxes = frames_boxes[idx]
-        for det_idx, tid in enumerate(tids):
-            if tid == target_tid:
-                if _iou_xyxy(boxes[det_idx], ref_box) >= iou_thr:
-                    count += 1
-                break
-    return count
+# Note: _iou_xyxy, _greedy_match, build_tracks, and _count_support are now imported from post.robust_filter
 
 
 def _robust_prompts(
@@ -624,7 +544,7 @@ def main():
         if not processed:
             continue
 
-        per_frame_tids = _build_tracks_per_video(frames_boxes, args.track_iou)
+        per_frame_tids = build_tracks(frames_boxes, args.track_iou)
         prompts = _robust_prompts(
             frames_boxes=frames_boxes,
             per_frame_tids=per_frame_tids,

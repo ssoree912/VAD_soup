@@ -23,53 +23,14 @@ import cv2
 import numpy as np
 import torch
 import yaml
-from PIL import Image
-import importlib.util
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from lanp.backbone import LANPResNeXtBackbone
 from model import AD_Model
 from utils import set_seeds
-
-BACKBONE_ROOT = REPO_ROOT / "video-classification-3d-cnn-pytorch"
-
-if str(BACKBONE_ROOT) not in sys.path:
-    sys.path.insert(0, str(BACKBONE_ROOT))
-
-def _load_backbone_module(module_label: str, relative_path: str):
-    module_name = f"_backbone_{module_label}"
-    module_path = BACKBONE_ROOT / relative_path
-    if not module_path.exists():
-        raise FileNotFoundError(f"Expected backbone file not found: {module_path}")
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load backbone module {module_label} from {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)  # type: ignore[assignment]
-    return module
-
-try:
-    backbone_mean = _load_backbone_module("mean", "mean.py").get_mean  # type: ignore[attr-defined]
-    backbone_model_module = _load_backbone_module("model", "model.py")
-    generate_backbone = backbone_model_module.generate_model  # type: ignore[attr-defined]
-    spatial_transforms_module = _load_backbone_module("spatial_transforms", "spatial_transforms.py")
-    CenterCrop = spatial_transforms_module.CenterCrop  # type: ignore[attr-defined]
-    Compose = spatial_transforms_module.Compose  # type: ignore[attr-defined]
-    Normalize = spatial_transforms_module.Normalize  # type: ignore[attr-defined]
-    Scale = spatial_transforms_module.Scale  # type: ignore[attr-defined]
-    ToTensor = spatial_transforms_module.ToTensor  # type: ignore[attr-defined]
-except (ModuleNotFoundError, AttributeError) as exc:
-    raise ModuleNotFoundError(
-        "Backbone utilities could not be imported. "
-        "Ensure 'video-classification-3d-cnn-pytorch' is present with the expected files."
-    ) from exc
-finally:
-    if str(BACKBONE_ROOT) in sys.path:
-        sys.path.remove(str(BACKBONE_ROOT))
-        sys.path.append(str(BACKBONE_ROOT))
 
 
 def parse_args() -> argparse.Namespace:
@@ -261,95 +222,7 @@ def apply_mask_to_frames(
     return masked
 
 
-class BackboneFeatureExtractor:
-    def __init__(
-        self,
-        weights_path: Path,
-        device: torch.device,
-        sample_duration: int,
-        sample_size: int,
-        model_name: str,
-        model_depth: int,
-        resnext_cardinality: int,
-        resnet_shortcut: str,
-    ) -> None:
-        if not weights_path.exists():
-            raise FileNotFoundError(f"Backbone weights not found: {weights_path}")
-
-        opt = SimpleNamespace()
-        opt.model_name = model_name
-        opt.model_depth = model_depth
-        opt.arch = f"{opt.model_name}-{opt.model_depth}"
-        opt.resnext_cardinality = resnext_cardinality
-        opt.resnet_shortcut = resnet_shortcut
-        opt.n_classes = 400
-        opt.sample_size = sample_size
-        opt.sample_duration = sample_duration
-        opt.mode = "feature"
-        opt.mean = backbone_mean()
-        opt.batch_size = 1
-        opt.n_threads = 1
-        opt.no_cuda = device.type == "cpu"
-
-        self.device = device
-        self.opt = opt
-        self.model = generate_backbone(opt)
-        state = torch.load(str(weights_path), map_location=device)
-        state_dict = state["state_dict"] if isinstance(state, dict) and "state_dict" in state else state
-
-        model_is_parallel = isinstance(self.model, torch.nn.DataParallel)
-        state_is_parallel = any(k.startswith("module.") for k in state_dict.keys())
-
-        if model_is_parallel and not state_is_parallel:
-            state_dict = {f"module.{k}": v for k, v in state_dict.items()}
-        if not model_is_parallel and state_is_parallel:
-            state_dict = {k[len("module.") :]: v for k, v in state_dict.items()}
-
-        self.model.load_state_dict(state_dict, strict=True)
-        self.model.eval()
-
-        if not opt.no_cuda:
-            self.model.to(device)
-
-        self.fill_rgb = np.array(opt.mean, dtype=np.float32)
-        self.sample_duration = sample_duration
-        self.spatial_transform = Compose(
-            [
-                Scale(opt.sample_size),
-                CenterCrop(opt.sample_size),
-                ToTensor(),
-                Normalize(opt.mean, [1.0, 1.0, 1.0]),
-            ]
-        )
-
-    def _pad_frames(self, frames: List[np.ndarray]) -> List[np.ndarray]:
-        if len(frames) >= self.sample_duration:
-            return frames[: self.sample_duration]
-        padded = list(frames)
-        while len(padded) < self.sample_duration:
-            padded.append(padded[-1])
-        return padded
-
-    def extract(self, frames: List[np.ndarray]) -> np.ndarray:
-        frames = self._pad_frames(frames)
-        clip_tensors = []
-        for frame in frames:
-            pil_image = Image.fromarray(frame, mode="RGB")
-            clip_tensors.append(self.spatial_transform(pil_image))
-        clip_tensor = torch.stack(clip_tensors, dim=0).permute(1, 0, 2, 3).unsqueeze(0)
-        clip_tensor = clip_tensor.to(self.device).type(torch.float32)
-
-        with torch.no_grad():
-            outputs = self.model(clip_tensor)
-
-        if isinstance(outputs, (tuple, list)):
-            outputs = outputs[0]
-
-        if outputs.dim() > 2:
-            outputs = outputs.view(outputs.size(0), -1)
-
-        feature = outputs.squeeze(0).detach().cpu().numpy()
-        return feature.astype(np.float32, copy=False)
+BackboneFeatureExtractor = LANPResNeXtBackbone
 
 
 class FeatureNormalizer:
