@@ -18,3 +18,5 @@ ckp/
 artifacts/
 soup/
 *.pth
+test_results/
+*.pt

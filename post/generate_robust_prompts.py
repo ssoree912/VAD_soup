@@ -30,10 +30,25 @@ def load_roi_frame_scores(path: Path) -> Dict[str, List[np.ndarray]]:
             arr = payload["frame_scores"]
             if isinstance(arr, np.ndarray) and arr.dtype == object and arr.size == 1:
                 data = arr.flat[0]
+            else:
+                print(f"[debug] frame_scores key present but unexpected format: type={type(arr)}, dtype={getattr(arr, 'dtype', None)}")
+        elif "data" in payload.files:
+            arr = payload["data"]
+            if isinstance(arr, np.ndarray) and arr.dtype == object and arr.size == 1:
+                maybe_dict = arr.flat[0]
+                if isinstance(maybe_dict, dict) and "frame_scores" in maybe_dict:
+                    data = maybe_dict["frame_scores"]
+                else:
+                    print("[debug] 'data' key found but frame_scores missing inside object")
+            else:
+                print(f"[debug] data key present but unexpected payload type: {type(arr)}")
     elif isinstance(payload, np.ndarray) and payload.dtype == object:
         data = payload.item()
     if data is None:
         raise ValueError(f"Could not find frame_scores in {path}")
+    if not isinstance(data, dict):
+        raise ValueError(f"frame_scores payload is not a dict (got {type(data)})")
+    print(f"[debug] Loaded ROI frame scores for {len(data)} videos from {path}")
     return data
 
 
@@ -65,14 +80,19 @@ def main():
     if args.videos:
         allowed = set(args.videos)
         det_files = [f for f in det_files if f.parent.name in allowed]
+    if not det_files:
+        print(f"[warn] No detections found under {detections_root}; nothing to do")
     config = RobustFilterConfig(window=args.window, iou_threshold=args.iou_threshold, min_hits=args.min_hits)
     for det_file in det_files:
         video = det_file.parent.name
         if video not in frame_scores:
+            print(f"[warn] Skipping {video}: ROI frame scores not found")
             continue
         payload = load_detection_payload(det_file)
         boxes_seq = [np.asarray(b).reshape(-1, 4) for b in payload["boxes"]]
         roi_seq = frame_scores[video]
+        if len(boxes_seq) != len(roi_seq):
+            print(f"[debug] Frame count mismatch for {video}: detections={len(boxes_seq)}, roi_scores={len(roi_seq)}")
         keep_masks = robust_filter(boxes_seq, roi_seq, args.score_threshold, config)
         frame_files = payload["frame_files"]
         frame_indices = payload["frame_indices"]
