@@ -54,22 +54,35 @@ def load_frame_labels(path: Optional[Path], video: str) -> Optional[np.ndarray]:
     if path.is_dir():
         video_path = path / f"{video}.npy"
         if video_path.exists():
-            return np.load(video_path)
+            arr = np.load(video_path, allow_pickle=True)
+            arr = np.asarray(arr)
+            if arr.ndim > 1:
+                arr = (arr > 0).any(axis=tuple(range(1, arr.ndim))).astype(np.uint8)
+            return arr
         return None
     payload = np.load(path, allow_pickle=True)
     if isinstance(payload, np.lib.npyio.NpzFile):
         if video in payload.files:
-            return payload[video]
+            arr = np.asarray(payload[video])
+            if arr.ndim > 1:
+                arr = (arr > 0).any(axis=tuple(range(1, arr.ndim))).astype(np.uint8)
+            return arr
         if "data" in payload.files:
             arr = payload["data"]
             if isinstance(arr, np.ndarray) and arr.dtype == object and arr.size == 1:
                 maybe_dict = arr.flat[0]
                 if isinstance(maybe_dict, dict) and video in maybe_dict:
-                    return np.asarray(maybe_dict[video])
+                    arr = np.asarray(maybe_dict[video])
+                    if arr.ndim > 1:
+                        arr = (arr > 0).any(axis=tuple(range(1, arr.ndim))).astype(np.uint8)
+                    return arr
     if isinstance(payload, np.ndarray) and payload.dtype == object:
         data = payload.item()
         if isinstance(data, dict) and video in data:
-            return np.asarray(data[video])
+            arr = np.asarray(data[video])
+            if arr.ndim > 1:
+                arr = (arr > 0).any(axis=tuple(range(1, arr.ndim))).astype(np.uint8)
+            return arr
     return None
 
 def load_pixel_masks(path: Optional[Path], video: str) -> Optional[np.ndarray]:
@@ -319,6 +332,8 @@ def main():
         frame = cv2.imread(str(frame_path))
         overlay = frame.copy()
 
+        frame_idx = idx  # zero-based index for GT alignment
+
         # predicted mask (binary) for pixel-level viz
         mask = None
         mask_path = mask_path_for(frame_name, masks_dir)
@@ -336,27 +351,22 @@ def main():
 
         # --------- GT pixel mask -> GT boxes (for this frame)
         gt_boxes = np.zeros((0, 4), dtype=np.float32)
-        if gt_pixel is not None:
-            # handle 0-based vs 1-based frame indexing
-            fi = frame_number
-            if fi >= len(gt_pixel) and fi - 1 >= 0 and fi - 1 < len(gt_pixel):
-                fi = fi - 1
-            if 0 <= fi < len(gt_pixel):
-                gt_mask = gt_pixel[fi]
-                gt_boxes = masks_to_boxes(gt_mask, min_area=args.min_gt_area)
-                gt_boxes_by_frame[fi] = gt_boxes
-                # pixel metrics (only if we also have predicted mask)
-                if mask is not None and gt_mask is not None:
-                    m_pred = (mask > 0)
-                    m_gt = (gt_mask > 0)
-                    tp = int(np.logical_and(m_pred, m_gt).sum())
-                    fp = int(np.logical_and(m_pred, np.logical_not(m_gt)).sum())
-                    fn = int(np.logical_and(np.logical_not(m_pred), m_gt).sum())
-                    pix_TP += tp; pix_FP += fp; pix_FN += fn
+        if gt_pixel is not None and len(gt_pixel) > 0:
+            fi = min(max(frame_idx, 0), len(gt_pixel) - 1)
+            gt_mask = gt_pixel[fi]
+            gt_boxes = masks_to_boxes(gt_mask, min_area=args.min_gt_area)
+            gt_boxes_by_frame[fi] = gt_boxes
+            if mask is not None and gt_mask is not None:
+                m_pred = (mask > 0)
+                m_gt = (gt_mask > 0)
+                tp = int(np.logical_and(m_pred, m_gt).sum())
+                fp = int(np.logical_and(m_pred, np.logical_not(m_gt)).sum())
+                fn = int(np.logical_and(np.logical_not(m_pred), m_gt).sum())
+                pix_TP += tp; pix_FP += fp; pix_FN += fn
 
         # --------- dataset-level AP accumulator (no threshold; use all preds)
         for j in range(len(boxes)):
-            preds_all.append((float(roi_scores_frame[j]), frame_number, boxes[j].astype(np.float32)))
+            preds_all.append((float(roi_scores_frame[j]), frame_idx, boxes[j].astype(np.float32)))
 
         # --------- per-frame TP/FP/FN at threshold tau (for overlay text)
         keep = roi_scores_frame >= args.roi_tau
@@ -388,11 +398,11 @@ def main():
 
         # --------- frame-level AUC bookkeeping (LANP vs frame GT)
         score_line = f"ROI max: {np.max(roi_scores_frame) if len(roi_scores_frame) else 0:.2f}"
-        if lanp_scores is not None and idx < len(lanp_scores):
-            score_line += f" | LANP: {lanp_scores[idx]:.2f}"
-            preds_for_frame_auc.append(float(lanp_scores[idx]))
-            if gt_labels is not None and idx < len(gt_labels):
-                labels_for_frame_auc.append(int(gt_labels[idx]))
+        if lanp_scores is not None and frame_idx < len(lanp_scores):
+            score_line += f" | LANP: {lanp_scores[frame_idx]:.2f}"
+            preds_for_frame_auc.append(float(lanp_scores[frame_idx]))
+            if gt_labels is not None and frame_idx < len(gt_labels):
+                labels_for_frame_auc.append(int(gt_labels[frame_idx]))
 
         text = [
             f"Video: {video}",
@@ -427,14 +437,7 @@ def main():
     # Build GT boxes dict with frame index normalization (0/1-based)
     if gt_pixel is not None:
         # normalize frame indices to be consistent with preds_all (frame_number)
-        gt_by_frame_norm: Dict[int, np.ndarray] = {}
-        T = len(gt_pixel)
-        for fi0, boxes in gt_boxes_by_frame.items():
-            # map 0-based fi0 -> 1-based fi1 for consistency with frame_number if needed
-            fi1 = fi0
-            if fi1 < 1:  # if gt was 0-based, convert to 1-based
-                fi1 = fi0 + 1
-            gt_by_frame_norm[fi1] = boxes
+        gt_by_frame_norm: Dict[int, np.ndarray] = dict(gt_boxes_by_frame)
         ap, prec, rec = compute_ap(preds_all, gt_by_frame_norm, iou_thr=args.iou_thr)
         print(f"[det] AP@IoU{args.iou_thr:.2f}: {ap * 100:.2f}%  (preds={len(preds_all)}, GT={sum(len(v) for v in gt_by_frame_norm.values())})")
         # per-threshold PR not printed; AP covers it
