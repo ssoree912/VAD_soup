@@ -20,3 +20,5 @@ soup/
 *.pth
 test_results/
 *.pt
+data/ucf-crime/UCF_Crimes/
+data/ucf-crime/features/

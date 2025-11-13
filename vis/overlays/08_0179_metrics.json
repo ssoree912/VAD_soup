@@ -1,0 +1,14 @@
+{
+  "video": "08_0179",
+  "frame_auc": null,
+  "det_ap_iou": 0.3,
+  "det_ap": 0.0,
+  "det_threshold_tau": 0.6,
+  "det_precision_at_tau": 0.0,
+  "det_recall_at_tau": 0.0,
+  "det_f1_at_tau": 0.0,
+  "pixel_iou": null,
+  "pixel_precision": null,
+  "pixel_recall": null,
+  "pixel_f1": null
+}

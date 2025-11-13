@@ -80,18 +80,24 @@ def load_pixel_masks(path: Optional[Path], video: str) -> Optional[np.ndarray]:
         raise FileNotFoundError(path)
     if path.is_dir():
         p = path / f"{video}.npy"
-        return np.load(p) if p.exists() else None
+        if not p.exists():
+            return None
+        arr = np.load(p, allow_pickle=True)
+        return np.asarray(arr > 0, dtype=np.uint8)
     payload = np.load(path, allow_pickle=True)
     if isinstance(payload, np.lib.npyio.NpzFile):
         if video in payload.files:
-            return payload[video]
+            arr = np.asarray(payload[video])
+            return np.asarray(arr > 0, dtype=np.uint8)
         if "data" in payload.files:
             arr = payload["data"]
             if isinstance(arr, np.ndarray) and arr.dtype == object and arr.size == 1:
                 d = arr.flat[0]
                 if isinstance(d, dict) and video in d:
-                    return np.asarray(d[video])
-    return None
+                    arr = np.asarray(d[video])
+                    return np.asarray(arr > 0, dtype=np.uint8)
+    arr = np.asarray(payload)
+    return np.asarray(arr > 0, dtype=np.uint8)
 
 def mask_path_for(frame_name: str, masks_dir: Path) -> Optional[Path]:
     base = Path(frame_name).stem
@@ -133,7 +139,8 @@ def masks_to_boxes(mask: np.ndarray, min_area: int = 20) -> np.ndarray:
     """binary mask(H,W){0/1}->{N,4} xyxy boxes via connected components."""
     if mask is None or mask.size == 0:
         return np.zeros((0, 4), dtype=np.float32)
-    mask = (mask > 0).astype(np.uint8)
+    mask = np.asarray(mask > 0, dtype=np.uint8)
+    mask = np.ascontiguousarray(mask)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes = []
     for c in contours:
