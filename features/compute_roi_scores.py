@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from lanp import FrameFeatureBackbone
@@ -73,6 +74,23 @@ def save_scores(path: Path, frame_scores: Dict[str, List[np.ndarray]], snippet_s
     )
 
 
+def load_calibration_stats(path: Path) -> Tuple[float, float]:
+    if path.suffix.lower() == ".json":
+        data = json.loads(path.read_text())
+    else:
+        arr = np.load(path, allow_pickle=True)
+        if isinstance(arr, np.lib.npyio.NpzFile):
+            data = {k: float(arr[k]) for k in arr.files if k in {"mean", "std"}}
+        else:
+            raise ValueError(f"Unsupported calibration file format: {path}")
+    if "mean" not in data or "std" not in data:
+        raise ValueError(f"Calibration file must contain 'mean' and 'std' (got keys: {list(data.keys())})")
+    mean = float(data["mean"])
+    std = float(data["std"])
+    std = max(std, 1e-6)
+    return mean, std
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Compute ROI features and scores")
     parser.add_argument("--detections_root", required=True, help="Path to detection outputs (*/<video>/detections.npy)")
@@ -88,6 +106,11 @@ def parse_args():
     parser.add_argument("--backbone_arch", default="resnet50", help="2D backbone architecture (default: resnet50)")
     parser.add_argument("--videos", nargs="*", default=None, help="Optional subset of videos to process")
     parser.add_argument("--summary", type=str, default=None, help="Optional JSON summary output path")
+    parser.add_argument("--save_memory_path", type=str, default=None, help="Optional npy path to save collected ROI features as a memory bank")
+    parser.add_argument("--memory_max_samples", type=int, default=None, help="If saving memory, subsample to at most this many ROI features")
+    parser.add_argument("--scoring_mode", choices=["max", "knn"], default="max", help="Anomaly scoring mode (max cosine distance or k-NN average)")
+    parser.add_argument("--knn_k", type=int, default=5, help="k for k-NN scoring")
+    parser.add_argument("--score_calibration", type=str, default=None, help="Optional JSON/NPZ file with mean/std for z-score calibration")
     return parser.parse_args()
 
 
@@ -96,8 +119,11 @@ def main():
     device = torch.device(args.device) if args.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     backbone = FrameFeatureBackbone(arch=args.backbone_arch, pretrained=True, device=device)
     memory = load_memory(Path(args.memory_path), device)
+    scorer = ROIScorer(memory, mode=args.scoring_mode, knn_k=args.knn_k)
+    calibration_stats: Optional[Tuple[float, float]] = None
+    if args.score_calibration:
+        calibration_stats = load_calibration_stats(Path(args.score_calibration))
     feature_dim = int(memory.shape[1]) if memory.ndim == 2 and memory.shape[1] > 0 else 2048
-    scorer = ROIScorer(memory)
     detections_root = Path(args.detections_root)
     frames_root = Path(args.frames_root)
     det_files = sorted(detections_root.rglob("detections.npy"))
@@ -108,6 +134,7 @@ def main():
     frame_scores_map: Dict[str, List[np.ndarray]] = {}
     summary = {}
     pool_size = tuple(args.pool_size)
+    memory_samples: List[np.ndarray] = []
     for det_file in tqdm(det_files, desc="ROI"):
         video = det_file.parent.name
         payload = load_detection_payload(det_file)
@@ -139,7 +166,13 @@ def main():
             )
             feats_np = pooled.cpu().numpy().astype(np.float32)
             per_frame_features[int(frame_indices[idx])] = feats_np
-            roi_scores = scorer.score(pooled).detach().cpu().numpy().astype(np.float32)
+            if args.save_memory_path and feats_np.size:
+                memory_samples.append(feats_np)
+            roi_scores_t = scorer.score(pooled)
+            if calibration_stats is not None:
+                mean, std = calibration_stats
+                roi_scores_t = (roi_scores_t - mean) / std
+            roi_scores = roi_scores_t.detach().cpu().numpy().astype(np.float32)
             per_frame_scores[int(frame_indices[idx])] = roi_scores
         features_payload[video] = per_frame_features
         frame_scores_map[video] = per_frame_scores
@@ -154,6 +187,16 @@ def main():
         summary_path = Path(args.summary)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    if args.save_memory_path and memory_samples:
+        memory_matrix = np.concatenate(memory_samples, axis=0)
+        if args.memory_max_samples is not None and memory_matrix.shape[0] > args.memory_max_samples:
+            rng = np.random.default_rng()
+            idx = rng.choice(memory_matrix.shape[0], args.memory_max_samples, replace=False)
+            memory_matrix = memory_matrix[idx]
+        mem_path = Path(args.save_memory_path)
+        mem_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(mem_path, memory_matrix.astype(np.float32))
+        print(f"[memory] Saved {memory_matrix.shape[0]} ROI features to {mem_path}")
 
 
 if __name__ == "__main__":

@@ -11,14 +11,30 @@ class ROIScorer:
     """
     Compute object-level anomaly scores by comparing ROI features against the LANP
     normality memory using cosine distance.
+
+    Supports either the classic "max similarity" scheme (1 - max cosine sim) or an
+    average distance across the top-k nearest neighbors for added robustness.
     """
 
-    def __init__(self, memory: torch.Tensor, normalize: bool = True, eps: float = 1e-6):
+    def __init__(
+        self,
+        memory: torch.Tensor,
+        normalize: bool = True,
+        eps: float = 1e-6,
+        mode: str = "max",
+        knn_k: int = 5,
+    ):
         if memory.dim() != 2:
             raise ValueError("Memory tensor must be shaped (M, D).")
+        if mode not in {"max", "knn"}:
+            raise ValueError("mode must be 'max' or 'knn'")
+        if knn_k <= 0:
+            raise ValueError("knn_k must be positive")
         self.eps = eps
         self.device = memory.device
         self.normalize = normalize
+        self.mode = mode
+        self.knn_k = knn_k
         self.memory = (
             F.normalize(memory, p=2, dim=-1, eps=self.eps) if normalize else memory.clone()
         )
@@ -38,9 +54,17 @@ class ROIScorer:
             feats = F.normalize(feats, p=2, dim=-1, eps=self.eps)
 
         sims = torch.matmul(feats, self.memory.t())
-        max_sim, _ = torch.max(sims, dim=1)
-        scores = 1.0 - max_sim
-        return scores
+
+        if self.mode == "max":
+            max_sim, _ = torch.max(sims, dim=1)
+            scores = 1.0 - max_sim
+            return scores
+
+        # k-NN cosine distance: average (1 - sim) over top-k neighbors.
+        k = min(self.knn_k, sims.shape[1])
+        topk_sim, _ = torch.topk(sims, k=k, dim=1, largest=True)
+        dists = 1.0 - topk_sim
+        return dists.mean(dim=1)
 
 
 def score_frames(
@@ -67,4 +91,3 @@ def to_numpy_dict(frame_scores: Dict[str, List[torch.Tensor]]) -> Dict[str, List
     for video, per_frame in frame_scores.items():
         result[video] = [score.detach().cpu().numpy().astype(np.float32, copy=False) for score in per_frame]
     return result
-
