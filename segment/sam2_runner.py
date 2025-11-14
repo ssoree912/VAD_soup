@@ -40,11 +40,21 @@ def _box_mask(image_shape, box: Sequence[float]) -> np.ndarray:
 
 
 def _guess_frame_path(frames_dir: Path, frame_key: str) -> Optional[Path]:
+    """Best-effort resolver that tolerates keys with/without extensions/padding."""
     candidates = []
-    if frame_key.isdigit():
-        z = frame_key.zfill(6)
+    key_path = Path(frame_key)
+
+    # if caller already provided an extension, try the exact name first
+    if key_path.suffix:
+        candidates.append(key_path.name)
+    base = key_path.stem if key_path.suffix else key_path.name
+
+    if base.isdigit():
+        z = base.zfill(6)
         candidates.extend([f"{z}.jpg", f"{z}.png", f"{z}.jpeg"])
-    candidates.extend([f"{frame_key}.jpg", f"{frame_key}.png", f"{frame_key}.jpeg"])
+
+    candidates.extend([f"{base}.jpg", f"{base}.png", f"{base}.jpeg"])
+
     seen = set()
     for name in candidates:
         if name in seen:
@@ -73,6 +83,7 @@ class SAM2Runner:
         overwrite: bool = False,
         use_box_fallback: bool = False,
         verbose: bool = True,
+        debug: bool = False,
     ):
         """
         Process prompts and generate segmentation masks.
@@ -99,6 +110,23 @@ class SAM2Runner:
             if frame_path is None:
                 if verbose:
                     print(f"[warn] Frame not found for key={frame_key}")
+                if debug:
+                    candidates = []
+                    key_path = Path(frame_key)
+                    if key_path.suffix:
+                        candidates.append(key_path.name)
+                    base = key_path.stem if key_path.suffix else key_path.name
+                    if base.isdigit():
+                        z = base.zfill(6)
+                        candidates.extend([f"{z}.jpg", f"{z}.png", f"{z}.jpeg"])
+                    candidates.extend([f"{base}.jpg", f"{base}.png", f"{base}.jpeg"])
+                    print(f"        frames_dir: {frames_dir}")
+                    print(f"        tried: {candidates}")
+                    try:
+                        entries = sorted(p.name for p in frames_dir.iterdir())
+                        print(f"        dir contains ({len(entries)} files): {entries[:20]}{' ...' if len(entries) > 20 else ''}")
+                    except FileNotFoundError:
+                        print(f"        frames_dir does not exist")
                 continue
             frame_file_map.setdefault(frame_key, frame_path.name)
             if frame_key != cached_key:
@@ -159,12 +187,16 @@ Examples:
                     help="Path to robust_prompts.json file")
     ap.add_argument("--out-dir", "--output", required=True,
                     help="Output directory for mask images")
+    ap.add_argument("--frames-dir", default=None,
+                    help="Optional override for frames directory (overrides JSON)")
     ap.add_argument("--box-fallback", "--box-mask-fallback", action="store_true",
                     help="Use simple box masks instead of SAM2 (no model required)")
     ap.add_argument("--overwrite", action="store_true",
                     help="Overwrite existing mask files")
     ap.add_argument("--quiet", action="store_true",
                     help="Suppress progress output")
+    ap.add_argument("--debug", action="store_true",
+                    help="Print extra diagnostics when frames are missing")
     return ap.parse_args()
 
 
@@ -175,7 +207,7 @@ def main():
     with open(args.prompts_json, "r") as f:
         payload = json.load(f)
 
-    frames_dir = Path(payload["frames_dir"])
+    frames_dir = Path(args.frames_dir) if args.frames_dir else Path(payload["frames_dir"])
     prompts = payload.get("prompts", [])
 
     if not prompts:
@@ -190,6 +222,7 @@ def main():
         overwrite=args.overwrite,
         use_box_fallback=args.box_fallback,
         verbose=not args.quiet,
+        debug=args.debug,
     )
 
 

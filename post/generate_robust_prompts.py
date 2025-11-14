@@ -67,6 +67,24 @@ def parse_args():
     parser.add_argument("--window", type=int, default=5, help="Robust filter temporal window k")
     parser.add_argument("--iou_threshold", type=float, default=0.3, help="IoU threshold h")
     parser.add_argument("--min_hits", type=int, default=3, help="Min matches m")
+    parser.add_argument(
+        "--frame_score_threshold",
+        type=float,
+        default=None,
+        help="Skip frames whose kept ROI max score is below this value",
+    )
+    parser.add_argument(
+        "--max_rois_per_frame",
+        type=int,
+        default=None,
+        help="Limit number of kept ROIs per frame (Top-K). None to keep all.",
+    )
+    parser.add_argument(
+        "--det_score_threshold",
+        type=float,
+        default=None,
+        help="Drop detections whose detector confidence is below this value",
+    )
     return parser.parse_args()
 
 
@@ -103,10 +121,44 @@ def main():
             kept = np.asarray(mask).astype(bool)
             if not np.any(kept):
                 continue
-            scores = roi_seq[frame_idx]
+            raw_scores = np.asarray(roi_seq[frame_idx])
+            if raw_scores.shape[0] != boxes.shape[0]:
+                print(
+                    f"[warn] ROI score count mismatch at frame {frame_idx} in {video}: "
+                    f"scores={raw_scores.shape[0]} boxes={boxes.shape[0]}"
+                )
+                scores = np.full(boxes.shape[0], float(args.score_threshold), dtype=np.float32)
+                scores[: min(raw_scores.shape[0], boxes.shape[0])] = raw_scores[: boxes.shape[0]]
+            else:
+                scores = raw_scores.astype(np.float32)
             classes = payload["classes"][frame_idx]
             file_key = str(frame_files[frame_idx])
             abs_idx = int(frame_indices[frame_idx])
+            det_scores = None
+            if args.det_score_threshold is not None and "scores" in payload:
+                det_scores = np.asarray(payload["scores"][frame_idx])
+                if det_scores.shape == kept.shape:
+                    kept = kept & (det_scores >= args.det_score_threshold)
+                else:
+                    print(f"[warn] Detection score shape mismatch at frame {frame_idx} in {video}; skipping det threshold")
+            if not np.any(kept):
+                continue
+            if args.frame_score_threshold is not None:
+                valid_scores = scores[kept]
+                max_score = float(valid_scores.max()) if valid_scores.size else -np.inf
+                if max_score < args.frame_score_threshold:
+                    continue
+            if args.max_rois_per_frame is not None and args.max_rois_per_frame > 0 and np.any(kept):
+                kept_idx = np.where(kept)[0]
+                if kept_idx.size > args.max_rois_per_frame:
+                    score_subset = scores[kept_idx]
+                    order = np.argsort(score_subset)
+                    top_idx = kept_idx[order[-args.max_rois_per_frame:]]
+                    new_kept = np.zeros_like(kept, dtype=bool)
+                    new_kept[top_idx] = True
+                    kept = new_kept
+            if not np.any(kept):
+                continue
             for det_idx, keep_flag in enumerate(kept):
                 if not keep_flag:
                     continue
