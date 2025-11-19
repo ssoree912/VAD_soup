@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torchvision import transforms as T
+from tqdm import tqdm
 
 from models.unet_ae import UNetAutoencoder
 
@@ -87,7 +88,7 @@ def main() -> None:
     )
 
     video_dirs = sorted([p for p in frames_root.iterdir() if p.is_dir()])
-    for video_dir in video_dirs:
+    for video_dir in tqdm(video_dirs, desc="Videos"):
         vid = video_dir.name
         if vid not in lanp_scores:
             print(f"[warn] missing LANP scores for video {vid}, skipping")
@@ -110,7 +111,8 @@ def main() -> None:
         video_out = out_root / vid
         video_out.mkdir(parents=True, exist_ok=True)
 
-        for idx in range(frame_count):
+        iter_frames = tqdm(range(frame_count), desc=f"{vid} frames", leave=False)
+        for idx in iter_frames:
             if scores[idx] < thr:
                 continue
             fp = frame_paths[idx]

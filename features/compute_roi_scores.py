@@ -209,7 +209,7 @@ def main():
     summary = {}
     pool_size = tuple(args.pool_size)
     memory_samples: List[np.ndarray] = []
-    for det_file in tqdm(det_files, desc="ROI"):
+    for det_file in tqdm(det_files, desc="ROI videos"):
         video = det_file.parent.name
         payload = load_detection_payload(det_file)
         boxes_seq = payload["boxes"]
@@ -219,7 +219,12 @@ def main():
         num_frames = int(payload.get("num_frames", len(frame_indices)))
         per_frame_features: List[np.ndarray] = [np.zeros((0, feature_dim), dtype=np.float32) for _ in range(num_frames)]
         per_frame_scores: List[np.ndarray] = [np.zeros((0,), dtype=np.float32) for _ in range(num_frames)]
-        for idx in range(min(len(frame_indices), num_frames)):
+        frame_loop = tqdm(
+            range(min(len(frame_indices), num_frames)),
+            desc=f"{video} frames",
+            leave=False,
+        )
+        for idx in frame_loop:
             boxes = np.asarray(boxes_seq[idx])
             if boxes.size == 0:
                 continue

@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from datasets.shanghaitech_frames import ShanghaiTechFrames
 from models.unet_ae import UNetAutoencoder
@@ -55,7 +56,8 @@ def main() -> None:
     for epoch in range(args.epochs):
         model.train()
         total_loss = 0.0
-        for x in loader:
+        progress = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", leave=False)
+        for x in progress:
             x = x.to(device, non_blocking=True)
             x_hat = model(x)
 
@@ -66,6 +68,7 @@ def main() -> None:
             optimizer.step()
 
             total_loss += loss.item() * x.size(0)
+            progress.set_postfix(loss=loss.item())
 
         avg_loss = total_loss / len(loader.dataset)
         print(f"[Epoch {epoch + 1}/{args.epochs}] loss={avg_loss:.4f}")
