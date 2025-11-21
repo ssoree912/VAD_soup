@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Convert AE heatmaps into blob detections compatible with LANP pipeline."""
+"""
+Convert AE heatmaps into detections.npy with debugging:
+- thresholding + morphology
+- min_area + top-K filtering
+- per-frame stats print
+- optional debug overlay (frame + heatmap + boxes)
+"""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple, Dict
 
 import cv2
 import numpy as np
@@ -13,125 +19,130 @@ from tqdm import tqdm
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Threshold AE heatmaps, extract blobs, and save detections.npy per video."
-    )
-    parser.add_argument("--frames_root", required=True, help="Root with <video> frame folders.")
-    parser.add_argument("--heatmaps_root", required=True, help="Root with AE maps: <video>/<frame>_err.npy")
-    parser.add_argument("--output_root", required=True, help="Where <video>/detections.npy will be written.")
-    parser.add_argument("--videos", nargs="*", default=None, help="Optional subset of video ids.")
-    parser.add_argument(
-        "--err_percentile",
-        type=float,
-        default=95.0,
-        help="Per-frame percentile threshold (e.g., 95 keeps top 5% pixels).",
-    )
-    parser.add_argument(
-        "--min_area",
-        type=int,
-        default=30,
-        help="Minimum blob area (in heatmap px) to keep as a detection.",
-    )
-    parser.add_argument(
-        "--morph_kernel",
-        type=int,
-        default=5,
-        help="Kernel size for morphological open/close (0 to disable).",
-    )
-    parser.add_argument(
-        "--top_k",
-        type=int,
-        default=None,
-        help="If set, keep only top-K blobs per frame by score.",
-    )
-    parser.add_argument(
-        "--score_agg",
-        choices=["mean", "max"],
-        default="mean",
-        help="Aggregate error inside blob for detection score.",
-    )
-    parser.add_argument(
-        "--class_id",
-        type=int,
-        default=0,
-        help="Class id assigned to every blob (compatibility with downstream code).",
-    )
-    return parser.parse_args()
+    p = argparse.ArgumentParser("AE heatmap -> detections.npy (with debug)")
+    p.add_argument("--frames_root", required=True,
+                   help="Root with per-video frame folders (e.g. data/shanghaitech/testing/frames)")
+    p.add_argument("--heatmaps_root", required=True,
+                   help="Root with per-video AE error maps (<video>/<frame>_err.npy)")
+    p.add_argument("--output_root", required=True,
+                   help="Where to save detections (per video)/detections.npy")
+
+    # blob 파라미터
+    p.add_argument("--err_percentile", type=float, default=95.0,
+                   help="Per-frame percentile on err map for thresholding (e.g., 95, 98, 99)")
+    p.add_argument("--min_area", type=int, default=30,
+                   help="Minimum blob area in pixels (in heatmap resolution)")
+    p.add_argument("--morph_kernel", type=int, default=0,
+                   help="Morphology kernel size (0이면 morphology 비활성)")
+    p.add_argument("--top_k", type=int, default=0,
+                   help="Per-frame keep at most top-K blobs by score (0이면 전체 유지)")
+    p.add_argument("--score_agg", choices=["mean", "max"], default="mean",
+                   help="How to aggregate err inside each box")
+    p.add_argument("--class_id", type=int, default=0,
+                   help="Fixed class id for all detections")
+
+    # 디버깅 옵션
+    p.add_argument("--debug_root", type=str, default=None,
+                   help="If set, save overlay images (frame + heatmap + boxes) here")
+    p.add_argument("--debug_every", type=int, default=30,
+                   help="Save debug image every N frames (per video)")
+    return p.parse_args()
 
 
-def load_frames(video_dir: Path) -> List[Path]:
-    return sorted(list(video_dir.glob("*.jpg")) + list(video_dir.glob("*.png")))
-
-
-def load_err_map(hmap_dir: Path, stem: str) -> np.ndarray | None:
-    path = hmap_dir / f"{stem}_err.npy"
-    if not path.exists():
-        return None
-    arr = np.load(path)
-    arr = np.asarray(arr, dtype=np.float32)
-    if arr.ndim == 3:
-        arr = arr.squeeze()
-    return arr
-
-
-def err_to_mask(err: np.ndarray, percentile: float) -> np.ndarray:
-    err = np.nan_to_num(err, nan=0.0, posinf=0.0, neginf=0.0)
-    thr = np.percentile(err, percentile)
-    if thr <= 0:
-        thr = float(err.mean()) + 1e-6
-    return (err >= thr).astype(np.uint8)
-
-
-def mask_to_boxes_scores(
-    mask: np.ndarray,
+def mask_to_boxes_and_scores(
     err: np.ndarray,
+    thr: float,
     min_area: int,
     score_agg: str,
     morph_kernel: int = 0,
-    top_k: int | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    mask_u8 = (mask > 0).astype(np.uint8)
-    if morph_kernel and morph_kernel > 0:
+    """err(H,W) -> (N,4) boxes, (N,) scores."""
+    # threshold
+    mask = (err >= thr).astype(np.uint8)
+
+    # morphology (옵션)
+    if morph_kernel > 0:
         k = np.ones((morph_kernel, morph_kernel), np.uint8)
-        mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, k)
-        mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, k)
-    mask_u8 = np.ascontiguousarray(mask_u8)
-    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    boxes = []
-    scores = []
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
+
+    if mask.sum() == 0:
+        return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.float32)
+
+    mask = np.ascontiguousarray(mask)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    H, W = err.shape
+    boxes: List[List[float]] = []
+    scores: List[float] = []
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
-        if w * h < min_area:
+        area = w * h
+        if area < min_area:
             continue
-        x1, y1, x2, y2 = x, y, x + w, y + h
-        boxes.append([x1, y1, x2, y2])
-        patch = err[y1:y2, x1:x2].reshape(-1)
+        x2 = min(x + w, W)
+        y2 = min(y + h, H)
+        patch = err[y:y2, x:x2]
         if patch.size == 0:
-            scores.append(0.0)
+            continue
+        if score_agg == "max":
+            s = float(patch.max())
         else:
-            scores.append(float(patch.mean() if score_agg == "mean" else patch.max()))
+            s = float(patch.mean())
+        boxes.append([x, y, x2, y2])
+        scores.append(s)
+
     if not boxes:
         return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.float32)
-    boxes_arr = np.asarray(boxes, dtype=np.float32)
-    scores_arr = np.asarray(scores, dtype=np.float32)
 
-    if top_k is not None and top_k > 0 and scores_arr.shape[0] > top_k:
-        order = np.argsort(scores_arr)[-top_k:]
-        boxes_arr = boxes_arr[order]
-        scores_arr = scores_arr[order]
-
-    return boxes_arr, scores_arr
+    return np.asarray(boxes, dtype=np.float32), np.asarray(scores, dtype=np.float32)
 
 
-def rescale_boxes(boxes: np.ndarray, src_hw: Tuple[int, int], dst_hw: Tuple[int, int]) -> np.ndarray:
-    if boxes.size == 0:
-        return boxes.astype(np.float32)
-    sy = dst_hw[0] / max(float(src_hw[0]), 1.0)
-    sx = dst_hw[1] / max(float(src_hw[1]), 1.0)
-    scaled = boxes.copy().astype(np.float32)
-    scaled[:, [0, 2]] *= sx
-    scaled[:, [1, 3]] *= sy
-    return scaled
+def save_debug_overlay(
+    out_path: Path,
+    frame_bgr: np.ndarray,
+    err: np.ndarray,
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    thr: float,
+    nonzero_ratio: float,
+):
+    """원본 프레임 + heatmap + 박스 시각화."""
+    h, w = frame_bgr.shape[:2]
+    # err를 frame 크기로 resize
+    err_norm = err.copy()
+    err_norm = err_norm - err_norm.min()
+    if err_norm.max() > 0:
+        err_norm = err_norm / err_norm.max()
+    err_up = cv2.resize(err_norm, (w, h), interpolation=cv2.INTER_LINEAR)
+    err_col = cv2.applyColorMap((err_up * 255).astype(np.uint8), cv2.COLORMAP_JET)
+
+    overlay = cv2.addWeighted(frame_bgr, 0.6, err_col, 0.4, 0.0)
+
+    # 박스 그리기 (노란색)
+    for i, box in enumerate(boxes):
+        x1, y1, x2, y2 = box.astype(int)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        if i < len(scores):
+            cv2.putText(
+                overlay,
+                f"{scores[i]:.2f}",
+                (x1, max(0, y1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
+
+    # 텍스트 정보
+    txt1 = f"thr={thr:.4f}"
+    txt2 = f"mask_ratio={nonzero_ratio*100:.2f}%  boxes={len(boxes)}"
+    cv2.putText(overlay, txt1, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(overlay, txt2, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out_path), overlay)
 
 
 def main() -> None:
@@ -142,74 +153,125 @@ def main() -> None:
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
+    debug_root = Path(args.debug_root) if args.debug_root else None
+
     video_dirs = sorted([p for p in frames_root.iterdir() if p.is_dir()])
-    if args.videos:
-        allowed = set(args.videos)
-        video_dirs = [p for p in video_dirs if p.name in allowed]
 
     for video_dir in tqdm(video_dirs, desc="Videos"):
         vid = video_dir.name
-        hm_dir = heatmaps_root / vid
-        if not hm_dir.exists():
-            print(f"[warn] missing heatmap dir for {vid}, skipping")
+        heat_dir = heatmaps_root / vid
+        if not heat_dir.exists():
+            print(f"[warn] heatmaps for video {vid} not found at {heat_dir}")
             continue
-        frames = load_frames(video_dir)
-        if not frames:
+
+        frame_paths = sorted(list(video_dir.glob("*.jpg")) + list(video_dir.glob("*.png")))
+        if not frame_paths:
             print(f"[warn] no frames found for {vid}")
             continue
 
-        frame_files: List[str] = []
-        frame_indices: List[int] = []
-        boxes_seq: List[np.ndarray] = []
-        scores_seq: List[np.ndarray] = []
-        classes_seq: List[np.ndarray] = []
+        num_frames = len(frame_paths)
+        boxes_seq: List[np.ndarray] = [np.zeros((0, 4), dtype=np.float32) for _ in range(num_frames)]
+        scores_seq: List[np.ndarray] = [np.zeros((0,), dtype=np.float32) for _ in range(num_frames)]
+        classes_seq: List[np.ndarray] = [np.zeros((0,), dtype=np.int64) for _ in range(num_frames)]
 
-        for idx, frame_path in enumerate(frames):
-            frame_files.append(frame_path.name)
-            frame_indices.append(idx)
+        frames_with_dets = 0
+        total_boxes = 0
 
-            err = load_err_map(hm_dir, frame_path.stem)
-            boxes = np.zeros((0, 4), dtype=np.float32)
-            scores = np.zeros((0,), dtype=np.float32)
-            classes = np.zeros((0,), dtype=np.int64)
+        for fi, fp in enumerate(tqdm(frame_paths, desc=f"{vid}", leave=False)):
+            stem = fp.stem
+            err_path = heat_dir / f"{stem}_err.npy"
+            if not err_path.exists():
+                # AE 안 돌린 프레임일 수 있음
+                continue
 
-            if err is not None:
-                mask = err_to_mask(err, args.err_percentile)
-                boxes_ae, scores_ae = mask_to_boxes_scores(
-                    mask,
-                    err,
-                    args.min_area,
-                    args.score_agg,
-                    args.morph_kernel,
-                    args.top_k,
-                )
-                frame_img = cv2.imread(str(frame_path))
-                if frame_img is None:
-                    frame_h, frame_w = err.shape[:2]
-                else:
-                    frame_h, frame_w = frame_img.shape[:2]
-                boxes = rescale_boxes(boxes_ae, err.shape[:2], (frame_h, frame_w))
-                scores = scores_ae
-                classes = np.full((boxes.shape[0],), int(args.class_id), dtype=np.int64)
+            err = np.load(err_path)
+            if err.ndim == 3:
+                err = err.squeeze()
+            err = np.asarray(err, dtype=np.float32)
 
-            boxes_seq.append(boxes)
-            scores_seq.append(scores)
-            classes_seq.append(classes)
+            frame_bgr = cv2.imread(str(fp))
+            if frame_bgr is not None:
+                frame_h, frame_w = frame_bgr.shape[:2]
+            else:
+                frame_h, frame_w = err.shape[:2]
 
-        payload: Dict[str, object] = {
-            "frame_files": np.array(frame_files, dtype=object),
-            "frame_indices": np.array(frame_indices, dtype=np.int32),
+            # per-frame percentile
+            thr = float(np.percentile(err, args.err_percentile))
+            mask = (err >= thr)
+            nonzero_ratio = float(mask.mean())
+
+            boxes, scores = mask_to_boxes_and_scores(
+                err,
+                thr,
+                min_area=args.min_area,
+                score_agg=args.score_agg,
+                morph_kernel=args.morph_kernel,
+            )
+
+            # top-K 필터
+            if args.top_k > 0 and boxes.shape[0] > args.top_k:
+                order = np.argsort(scores)
+                keep_idx = order[-args.top_k :]
+                boxes = boxes[keep_idx]
+                scores = scores[keep_idx]
+
+            boxes_frame = boxes
+            if boxes.shape[0] > 0:
+                sx = frame_w / float(err.shape[1])
+                sy = frame_h / float(err.shape[0])
+                boxes_frame = boxes.copy()
+                boxes_frame[:, [0, 2]] *= sx
+                boxes_frame[:, [1, 3]] *= sy
+
+                frames_with_dets += 1
+                total_boxes += boxes.shape[0]
+                boxes_seq[fi] = boxes_frame
+                scores_seq[fi] = scores
+                classes_seq[fi] = np.full((boxes.shape[0],), args.class_id, dtype=np.int64)
+
+            # per-frame 디버그 로그
+            print(
+                f"[{vid} frame {fi}] err_mean={err.mean():.4f} "
+                f"err_max={err.max():.4f} thr({args.err_percentile}%)={thr:.4f} "
+                f"mask_ratio={nonzero_ratio*100:.2f}% boxes={boxes.shape[0]}"
+            )
+
+            # 디버그 overlay 저장
+            if debug_root is not None and (fi % args.debug_every == 0):
+                if frame_bgr is not None:
+                    dbg_path = debug_root / vid / f"{fi:06d}_debug.jpg"
+                    save_debug_overlay(
+                        dbg_path,
+                        frame_bgr,
+                        err,
+                        boxes_frame,
+                        scores,
+                        thr,
+                        nonzero_ratio,
+                    )
+
+        print(
+            f"[{vid}] num_frames={num_frames}, frames_with_dets={frames_with_dets}, "
+            f"total_boxes={total_boxes}"
+        )
+
+        # detections.npy 저장 (LANP 파이프라인 포맷 맞추기)
+        out_video_dir = output_root / vid
+        out_video_dir.mkdir(parents=True, exist_ok=True)
+
+        frame_files = np.array([fp.name for fp in frame_paths], dtype=object)
+        frame_indices = np.arange(num_frames, dtype=np.int32)
+
+        payload: Dict[str, np.ndarray] = {
             "boxes": np.array(boxes_seq, dtype=object),
             "scores": np.array(scores_seq, dtype=object),
             "classes": np.array(classes_seq, dtype=object),
-            "num_frames": len(frames),
+            "frame_files": frame_files,
+            "frame_indices": frame_indices,
+            "num_frames": np.array(num_frames, dtype=np.int32),
         }
-
-        out_dir = output_root / vid
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / "detections.npy"
-        np.save(out_path, payload, allow_pickle=True)
-        print(f"[{vid}] detections saved to {out_path}")
+        np.save(out_video_dir / "detections.npy", payload, allow_pickle=True)
+        print(f"[save] {vid} -> {out_video_dir / 'detections.npy'}")
 
 
 if __name__ == "__main__":
