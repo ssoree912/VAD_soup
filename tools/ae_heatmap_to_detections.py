@@ -33,6 +33,18 @@ def parse_args() -> argparse.Namespace:
         help="Minimum blob area (in heatmap px) to keep as a detection.",
     )
     parser.add_argument(
+        "--morph_kernel",
+        type=int,
+        default=5,
+        help="Kernel size for morphological open/close (0 to disable).",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=None,
+        help="If set, keep only top-K blobs per frame by score.",
+    )
+    parser.add_argument(
         "--score_agg",
         choices=["mean", "max"],
         default="mean",
@@ -75,8 +87,15 @@ def mask_to_boxes_scores(
     err: np.ndarray,
     min_area: int,
     score_agg: str,
+    morph_kernel: int = 0,
+    top_k: int | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    mask_u8 = np.ascontiguousarray((mask > 0).astype(np.uint8))
+    mask_u8 = (mask > 0).astype(np.uint8)
+    if morph_kernel and morph_kernel > 0:
+        k = np.ones((morph_kernel, morph_kernel), np.uint8)
+        mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, k)
+        mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, k)
+    mask_u8 = np.ascontiguousarray(mask_u8)
     contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes = []
     scores = []
@@ -93,7 +112,15 @@ def mask_to_boxes_scores(
             scores.append(float(patch.mean() if score_agg == "mean" else patch.max()))
     if not boxes:
         return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.float32)
-    return np.asarray(boxes, dtype=np.float32), np.asarray(scores, dtype=np.float32)
+    boxes_arr = np.asarray(boxes, dtype=np.float32)
+    scores_arr = np.asarray(scores, dtype=np.float32)
+
+    if top_k is not None and top_k > 0 and scores_arr.shape[0] > top_k:
+        order = np.argsort(scores_arr)[-top_k:]
+        boxes_arr = boxes_arr[order]
+        scores_arr = scores_arr[order]
+
+    return boxes_arr, scores_arr
 
 
 def rescale_boxes(boxes: np.ndarray, src_hw: Tuple[int, int], dst_hw: Tuple[int, int]) -> np.ndarray:
@@ -148,7 +175,14 @@ def main() -> None:
 
             if err is not None:
                 mask = err_to_mask(err, args.err_percentile)
-                boxes_ae, scores_ae = mask_to_boxes_scores(mask, err, args.min_area, args.score_agg)
+                boxes_ae, scores_ae = mask_to_boxes_scores(
+                    mask,
+                    err,
+                    args.min_area,
+                    args.score_agg,
+                    args.morph_kernel,
+                    args.top_k,
+                )
                 frame_img = cv2.imread(str(frame_path))
                 if frame_img is None:
                     frame_h, frame_w = err.shape[:2]
