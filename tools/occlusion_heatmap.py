@@ -17,7 +17,7 @@ import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -51,6 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rise-on-prob", type=float, default=0.5, help="Probability that a cell stays visible in each RISE mask.")
     parser.add_argument("--gaussian-sigma", type=float, default=1.0, help="Sigma for Gaussian smoothing on the upsampled heatmap.")
     parser.add_argument("--output-dir", default="visualizations/heatmaps", help="Directory to store heatmap outputs.")
+    parser.add_argument("--detections-root", default=None,
+                        help="Optional root containing <video>/detections.npy (YOLO/heatmap-guided format) for box overlays.")
     parser.add_argument("--device", default=None, help="Device override (cpu / cuda). Defaults to config/device if available.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for mask sampling.")
     parser.add_argument("--fill-mode", choices=["mean", "zero"], default="mean", help="Pixel fill value inside masked regions.")
@@ -89,6 +91,21 @@ def load_yaml_config(path: str) -> dict:
     if not isinstance(cfg, dict):
         raise ValueError(f"Configuration file {path} did not produce a dictionary.")
     return cfg
+
+
+def load_detections(root: Path, video: str) -> Optional[dict]:
+    """Load per-frame detections saved as npy (heatmap_guided_yoloworld format)."""
+    det_path = root / video / "detections.npy"
+    if not det_path.exists():
+        return None
+    arr = np.load(det_path, allow_pickle=True)
+    if isinstance(arr, np.lib.npyio.NpzFile):
+        data = {k: arr[k] for k in arr.files}
+    else:
+        data = arr.item() if isinstance(arr, np.ndarray) and arr.dtype == object else None
+    if not isinstance(data, dict):
+        raise ValueError(f"Unsupported detections format in {det_path}")
+    return data
 
 
 def load_lanp_scores(path: Path) -> dict:
@@ -211,7 +228,6 @@ def load_segment_frames(
 ) -> List[np.ndarray]:
     start = segment_index * segment_len
     frames_dir = frames_root / video_name
-
     if frames_dir.is_dir():
         return load_segment_from_frames_dir(frames_dir, start, segment_len)
 
@@ -222,6 +238,21 @@ def load_segment_frames(
     raise FileNotFoundError(
         f"Neither frames ({frames_dir}) nor video file ({video_path}) found."
     )
+
+
+def resolve_frame_name(frames_root: Path, video_name: str, frame_index: int) -> Optional[str]:
+    """Return the filename (not path) for a given frame index in a video folder."""
+    frames_dir = frames_root / video_name
+    frame_paths = sorted(
+        list(frames_dir.glob("*.jpg"))
+        + list(frames_dir.glob("*.jpeg"))
+        + list(frames_dir.glob("*.png"))
+        + list(frames_dir.glob("*.bmp"))
+    )
+    if not frame_paths:
+        return None
+    idx = min(max(frame_index, 0), len(frame_paths) - 1)
+    return frame_paths[idx].name
 
 
 def collate_frames(frames: Iterable[np.ndarray]) -> np.ndarray:
@@ -458,6 +489,34 @@ def main() -> None:
     segment_len = getattr(cfg, "segment_len", 16)
     segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
 
+    det_root = Path(args.detections_root) if args.detections_root else None
+    det_cache: dict[str, Optional[dict]] = {}
+
+    def get_boxes_for_frame(video_name: str, frame_name: Optional[str], frame_index: int) -> Optional[np.ndarray]:
+        if det_root is None or frame_name is None:
+            return None
+        if video_name not in det_cache:
+            det_cache[video_name] = load_detections(det_root, video_name)
+        det = det_cache.get(video_name)
+        if not det:
+            return None
+        boxes_seq = det.get("boxes", None)
+        frame_files = det.get("frame_files", None)
+        if boxes_seq is None or frame_files is None:
+            return None
+        # frame_files is usually an array of filenames (dtype=object)
+        try:
+            frame_files_list = [str(x) for x in frame_files.tolist()]
+        except Exception:  # noqa: BLE001
+            frame_files_list = [str(x) for x in frame_files]
+        if frame_name in frame_files_list:
+            idx = frame_files_list.index(frame_name)
+            return boxes_seq[idx]
+        # fallback by index if lengths match
+        if frame_index < len(frame_files_list) and frame_index < len(boxes_seq):
+            return boxes_seq[frame_index]
+        return None
+
     # Unified runner per (video, segment)
     def run_for_segment(video_name: str, segment_index: int) -> None:
         features_np = load_video_features(cfg, video_name)
@@ -477,6 +536,7 @@ def main() -> None:
 
         features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
         start = segment_index * segment_stride
+        center_frame_index = start + segment_len // 2
 
         if args.video_path:
             explicit_path = Path(args.video_path)
@@ -489,6 +549,9 @@ def main() -> None:
         else:
             frames_root, videos_root = dataset_roots(cfg, args.split)
             frames_list = load_segment_frames(video_name, segment_index, segment_len, frames_root, videos_root)
+            center_frame_name = resolve_frame_name(frames_root, video_name, center_frame_index)
+        else:
+            center_frame_name = None
         frames_np = collate_frames(frames_list)
 
         baseline_scores = run_model(model, features_tensor, device)
@@ -547,7 +610,14 @@ def main() -> None:
             np.save(dest_dir / f"{scale_base}_grid.npy", grid_heatmap)
             np.save(dest_dir / f"{scale_base}_heatmap.npy", heatmap_up)
             overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), heatmap_up)
+            boxes = get_boxes_for_frame(video_name, center_frame_name, center_frame_index)
+            overlay_boxes = overlay.copy()
+            if boxes is not None and getattr(boxes, "size", 0) > 0:
+                for box in boxes:
+                    x1, y1, x2, y2 = [int(round(v)) for v in box]
+                    cv2.rectangle(overlay_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.imwrite(str(dest_dir / f"{scale_base}_overlay.png"), overlay)
+            cv2.imwrite(str(dest_dir / f"{scale_base}_overlay_boxes.png"), overlay_boxes)
 
             if args.verbose:
                 max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
@@ -728,10 +798,17 @@ def main() -> None:
     fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
     frame_center = frames_np[len(frames_np) // 2]
     fused_overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), fused_heatmap)
+    boxes = get_boxes_for_frame(video_name, center_frame_name, center_frame_index)
+    fused_overlay_boxes = fused_overlay.copy()
+    if boxes is not None and getattr(boxes, "size", 0) > 0:
+        for box in boxes:
+            x1, y1, x2, y2 = [int(round(v)) for v in box]
+            cv2.rectangle(fused_overlay_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
     fused_base = f"{args.masking}_fused"
     np.save(dest_dir / f"{fused_base}_heatmap.npy", fused_heatmap)
     cv2.imwrite(str(dest_dir / f"{fused_base}_overlay.png"), fused_overlay)
+    cv2.imwrite(str(dest_dir / f"{fused_base}_overlay_boxes.png"), fused_overlay_boxes)
 
     top_p_fraction = max(0.0, min(args.top_p, 1.0))
     top_p_value = top_p_mean(fused_heatmap, top_p_fraction) if top_p_fraction > 0 else 0.0
