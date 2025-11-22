@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="visualizations/heatmaps", help="Directory to store heatmap outputs.")
     parser.add_argument("--detections-root", default=None,
                         help="Optional root containing <video>/detections.npy (YOLO/heatmap-guided format) for box overlays.")
+    parser.add_argument("--gt-root", default=None,
+                        help="Optional root containing ground-truth boxes (per video).")
+    parser.add_argument("--heatmap-thresh", type=float, default=90.0,
+                        help="Percentile threshold for converting heatmap to boxes.")
+    parser.add_argument("--heatmap-min-area", type=int, default=150,
+                        help="Minimum area (pixels) of heatmap-derived boxes.")
     parser.add_argument("--device", default=None, help="Device override (cpu / cuda). Defaults to config/device if available.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for mask sampling.")
     parser.add_argument("--fill-mode", choices=["mean", "zero"], default="mean", help="Pixel fill value inside masked regions.")
@@ -106,6 +112,84 @@ def load_detections(root: Path, video: str) -> Optional[dict]:
     if not isinstance(data, dict):
         raise ValueError(f"Unsupported detections format in {det_path}")
     return data
+
+
+def load_gt_for_video(gt_root: Path, video_name: str) -> Optional[dict]:
+    gt_path = gt_root / video_name / "gt_boxes.npy"
+    alt_path = gt_root / f"{video_name}.npy"
+    if not gt_path.exists():
+        gt_path = alt_path
+    if not gt_path.exists():
+        return None
+    arr = np.load(gt_path, allow_pickle=True)
+    if isinstance(arr, np.lib.npyio.NpzFile):
+        data = {k: arr[k] for k in arr.files}
+    elif isinstance(arr, dict):
+        data = arr
+    elif isinstance(arr, np.ndarray) and arr.dtype == object and arr.size == 1:
+        maybe = arr.item()
+        data = maybe if isinstance(maybe, dict) else None
+    else:
+        data = None
+
+    if isinstance(data, dict) and "frame_indices" in data and "boxes" in data:
+        return data
+
+    masks = np.asarray(arr)
+    if masks.ndim >= 3:
+        frame_indices = np.arange(masks.shape[0], dtype=int)
+        boxes_per_frame = []
+        for frame in masks:
+            mask = (frame > 0).astype(np.uint8) * 255
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            frame_boxes = []
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w * h <= 0:
+                    continue
+                frame_boxes.append([x, y, x + w, y + h])
+            if frame_boxes:
+                boxes_per_frame.append(np.asarray(frame_boxes, dtype=np.float32))
+            else:
+                boxes_per_frame.append(np.zeros((0, 4), dtype=np.float32))
+        return {"frame_indices": frame_indices, "boxes": np.array(boxes_per_frame, dtype=object)}
+
+    return data if data is not None else None
+
+
+def get_gt_boxes_for_frame(
+    gt_cache: dict,
+    gt_root: Optional[Path],
+    video_name: str,
+    frame_index: int,
+) -> np.ndarray:
+    if gt_root is None:
+        return np.zeros((0, 4), dtype=np.float32)
+    if video_name not in gt_cache:
+        data = load_gt_for_video(gt_root, video_name)
+        gt_cache[video_name] = data
+    data = gt_cache[video_name]
+    if data is None:
+        return np.zeros((0, 4), dtype=np.float32)
+
+    frame_indices = np.asarray(data["frame_indices"])
+    boxes_all = np.asarray(data["boxes"])
+    mask = (frame_indices == frame_index)
+    if not mask.any():
+        return np.zeros((0, 4), dtype=np.float32)
+    selected = boxes_all[mask]
+    if boxes_all.dtype == object or selected.dtype == object:
+        boxes_list = []
+        for entry in selected:
+            if entry is None:
+                continue
+            arr = np.asarray(entry, dtype=np.float32).reshape(-1, 4)
+            if arr.size > 0:
+                boxes_list.append(arr)
+        if not boxes_list:
+            return np.zeros((0, 4), dtype=np.float32)
+        return np.concatenate(boxes_list, axis=0).astype(np.float32)
+    return np.asarray(selected, dtype=np.float32).reshape(-1, 4)
 
 
 def load_lanp_scores(path: Path) -> dict:
@@ -375,6 +459,60 @@ def colorize_heatmap(frame_bgr: np.ndarray, heatmap: np.ndarray) -> np.ndarray:
     return overlay
 
 
+def heatmap_to_bboxes(
+    heatmap: np.ndarray,
+    thresh_percentile: float = 90.0,
+    min_area: int = 150,
+) -> np.ndarray:
+    """
+    Fused heatmap을 thresholding해서 bounding box 리스트를 만든다.
+    return: (N, 4) [x1, y1, x2, y2] float32
+    """
+    hmap = heatmap.astype(np.float32)
+    hmap = hmap - hmap.min()
+    max_val = hmap.max()
+    if max_val > 0:
+        hmap = hmap / max_val
+
+    thr = np.percentile(hmap, thresh_percentile)
+    mask = (hmap >= thr).astype(np.uint8) * 255
+
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w * h < min_area:
+            continue
+        boxes.append([x, y, x + w, y + h])
+
+    if not boxes:
+        return np.zeros((0, 4), dtype=np.float32)
+    return np.asarray(boxes, dtype=np.float32)
+
+
+def box_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    """
+    box_a, box_b: [x1, y1, x2, y2]
+    """
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter = inter_w * inter_h
+
+    area_a = max(0.0, (box_a[2] - box_a[0]) * (box_a[3] - box_a[1]))
+    area_b = max(0.0, (box_b[2] - box_b[0]) * (box_b[3] - box_b[1]))
+    union = area_a + area_b - inter + 1e-6
+
+    return float(inter / union)
+
+
 def grid_occlusion_heatmap(
     features_tensor: torch.Tensor,
     baseline_score: float,
@@ -491,6 +629,8 @@ def main() -> None:
 
     det_root = Path(args.detections_root) if args.detections_root else None
     det_cache: dict[str, Optional[dict]] = {}
+    gt_root = Path(args.gt_root) if args.gt_root else None
+    gt_cache: dict[str, Optional[dict]] = {}
 
     def get_boxes_for_frame(video_name: str, frame_name: Optional[str], frame_index: int) -> Optional[np.ndarray]:
         if det_root is None or frame_name is None:
@@ -538,6 +678,7 @@ def main() -> None:
         start = segment_index * segment_stride
         center_frame_index = start + segment_len // 2
 
+        center_frame_name: Optional[str] = None
         if args.video_path:
             explicit_path = Path(args.video_path)
             if explicit_path.is_dir():
@@ -550,8 +691,6 @@ def main() -> None:
             frames_root, videos_root = dataset_roots(cfg, args.split)
             frames_list = load_segment_frames(video_name, segment_index, segment_len, frames_root, videos_root)
             center_frame_name = resolve_frame_name(frames_root, video_name, center_frame_index)
-        else:
-            center_frame_name = None
         frames_np = collate_frames(frames_list)
 
         baseline_scores = run_model(model, features_tensor, device)
@@ -625,11 +764,51 @@ def main() -> None:
 
         fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
         frame_center = frames_np[len(frames_np) // 2]
-        fused_overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), fused_heatmap)
+        frame_center_bgr = cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR)
+        fused_overlay = colorize_heatmap(frame_center_bgr, fused_heatmap)
+
+        pred_boxes = heatmap_to_bboxes(
+            fused_heatmap,
+            thresh_percentile=args.heatmap_thresh,
+            min_area=args.heatmap_min_area,
+        )
+
+        gt_boxes = get_gt_boxes_for_frame(
+            gt_cache,
+            gt_root,
+            video_name,
+            center_frame_index,
+        )
+
+        fused_overlay_boxes = fused_overlay.copy()
+
+        for box in pred_boxes:
+            x1, y1, x2, y2 = [int(round(v)) for v in box]
+            cv2.rectangle(fused_overlay_boxes, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+        for box in gt_boxes:
+            x1, y1, x2, y2 = [int(round(v)) for v in box]
+            cv2.rectangle(fused_overlay_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        ious = []
+        for pb in pred_boxes:
+            best = 0.0
+            for gb in gt_boxes:
+                best = max(best, box_iou(pb, gb))
+            if best > 0:
+                ious.append(best)
+        mean_iou = np.mean(ious) if ious else 0.0
+
+        if args.verbose:
+            print(
+                f"[eval] {video_name} seg {segment_index}: "
+                f"#pred={len(pred_boxes)}, #gt={len(gt_boxes)}, mean IoU={mean_iou:.3f}"
+            )
 
         fused_base = f"{args.masking}_fused"
         np.save(dest_dir / f"{fused_base}_heatmap.npy", fused_heatmap)
         cv2.imwrite(str(dest_dir / f"{fused_base}_overlay.png"), fused_overlay)
+        cv2.imwrite(str(dest_dir / f"{fused_base}_overlay_boxes.png"), fused_overlay_boxes)
 
         top_p_fraction = max(0.0, min(args.top_p, 1.0))
         top_p_value = top_p_mean(fused_heatmap, top_p_fraction) if top_p_fraction > 0 else 0.0
@@ -685,152 +864,6 @@ def main() -> None:
         # optional: separate logs between videos
         if args.verbose:
             print(f"[info] finished {vid}")
-    norm_mode = args.feature_norm if args.feature_norm is not None else getattr(cfg, "feature_norm", None)
-    stats_path = args.feature_stats if args.feature_stats is not None else getattr(cfg, "feature_stats", None)
-    feature_normalizer = FeatureNormalizer(norm_mode, stats_path)
-
-    if args.normalize_baseline and feature_normalizer.mode != "none":
-        features_np = np.apply_along_axis(feature_normalizer.apply, 1, features_np)
-
-    num_segments = features_np.shape[0]
-    if args.segment_index < 0 or args.segment_index >= num_segments:
-        raise IndexError(
-            f"segment-index {args.segment_index} out of range for video {args.video_name} "
-            f"(available snippets: 0..{num_segments - 1})."
-        )
-
-    features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
-    segment_len = getattr(cfg, "segment_len", 16)
-    segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
-    start = args.segment_index * segment_stride
-
-    if args.video_path:
-        explicit_path = Path(args.video_path)
-        if explicit_path.is_dir():
-            frames_list = load_segment_from_frames_dir(explicit_path, start, segment_len)
-        elif explicit_path.is_file():
-            frames_list = load_segment_from_video_file(explicit_path, start, segment_len)
-        else:
-            raise FileNotFoundError(f"Specified video-path not found: {explicit_path}")
-    else:
-        frames_root, videos_root = dataset_roots(cfg, args.split)
-        frames_list = load_segment_frames(args.video_name, args.segment_index, segment_len, frames_root, videos_root)
-    frames_np = collate_frames(frames_list)
-
-    extractor = BackboneFeatureExtractor(
-        weights_path=Path(args.backbone_weights),
-        device=device,
-        sample_duration=segment_len,
-        sample_size=args.sample_size,
-        model_name=args.model_name,
-        model_depth=args.model_depth,
-        resnext_cardinality=args.resnext_cardinality,
-        resnet_shortcut=args.resnet_shortcut,
-    )
-
-    fill_rgb = extractor.fill_rgb.copy()
-    if args.fill_mode == "zero":
-        fill_rgb.fill(0.0)
-
-    model = prepare_model(cfg, Path(args.checkpoint), device)
-    baseline_scores = run_model(model, features_tensor, device)
-    baseline_score = baseline_scores[args.segment_index].item()
-
-    if args.verbose:
-        print(f"[info] baseline score for snippet {args.segment_index}: {baseline_score:.6f}")
-
-    rng = np.random.default_rng(args.seed)
-    output_root = Path(args.output_dir)
-    dest_dir = output_root / args.video_name / f"seg{args.segment_index:03d}"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    per_scale_heatmaps: List[Tuple[int, np.ndarray]] = []
-
-    for grid_size in args.grid_sizes:
-        if args.masking == "grid":
-            grid_heatmap = grid_occlusion_heatmap(
-                features_tensor=features_tensor,
-                baseline_score=baseline_score,
-                segment_index=args.segment_index,
-                frames=frames_np,
-                extractor=extractor,
-                model=model,
-                grid_size=grid_size,
-                fill_rgb=fill_rgb,
-                device=device,
-                feature_normalizer=feature_normalizer,
-            )
-        else:
-            grid_heatmap = rise_occlusion_heatmap(
-                features_tensor=features_tensor,
-                baseline_score=baseline_score,
-                segment_index=args.segment_index,
-                frames=frames_np,
-                extractor=extractor,
-                model=model,
-                grid_size=grid_size,
-                num_masks=args.num_masks,
-                on_prob=args.rise_on_prob,
-                fill_rgb=fill_rgb,
-                device=device,
-                rng=rng,
-                feature_normalizer=feature_normalizer,
-            )
-
-        if args.delta_relu:
-            grid_heatmap = np.maximum(grid_heatmap, 0.0)
-
-        frame_center = frames_np[len(frames_np) // 2]
-        heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
-
-        per_scale_heatmaps.append((grid_size, heatmap_up))
-
-        scale_base = f"{args.masking}_g{grid_size}"
-        np.save(dest_dir / f"{scale_base}_grid.npy", grid_heatmap)
-        np.save(dest_dir / f"{scale_base}_heatmap.npy", heatmap_up)
-        overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), heatmap_up)
-        cv2.imwrite(str(dest_dir / f"{scale_base}_overlay.png"), overlay)
-
-        if args.verbose:
-            max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
-            print(f"[info] grid {grid_size}: strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
-
-    fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
-    frame_center = frames_np[len(frames_np) // 2]
-    fused_overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), fused_heatmap)
-    boxes = get_boxes_for_frame(video_name, center_frame_name, center_frame_index)
-    fused_overlay_boxes = fused_overlay.copy()
-    if boxes is not None and getattr(boxes, "size", 0) > 0:
-        for box in boxes:
-            x1, y1, x2, y2 = [int(round(v)) for v in box]
-            cv2.rectangle(fused_overlay_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-    fused_base = f"{args.masking}_fused"
-    np.save(dest_dir / f"{fused_base}_heatmap.npy", fused_heatmap)
-    cv2.imwrite(str(dest_dir / f"{fused_base}_overlay.png"), fused_overlay)
-    cv2.imwrite(str(dest_dir / f"{fused_base}_overlay_boxes.png"), fused_overlay_boxes)
-
-    top_p_fraction = max(0.0, min(args.top_p, 1.0))
-    top_p_value = top_p_mean(fused_heatmap, top_p_fraction) if top_p_fraction > 0 else 0.0
-    fused_score = args.alpha * top_p_value + (1.0 - args.alpha) * baseline_score if top_p_fraction > 0 else baseline_score
-
-    with open(dest_dir / f"{fused_base}_meta.txt", "w") as meta:
-        meta.write(f"baseline_score: {baseline_score:.6f}\n")
-        meta.write(f"top_p_fraction: {top_p_fraction}\n")
-        meta.write(f"top_p_mean: {top_p_value:.6f}\n")
-        meta.write(f"alpha: {args.alpha:.3f}\n")
-        meta.write(f"fused_score: {fused_score:.6f}\n")
-        meta.write(f"grid_sizes: {args.grid_sizes}\n")
-        meta.write(f"masking: {args.masking}\n")
-        meta.write(f"segment_stride: {segment_stride}\n")
-        meta.write(f"feature_norm: {feature_normalizer.mode}\n")
-
-    if args.verbose:
-        print(f"[info] fused heatmap saved to {dest_dir / f'{fused_base}_overlay.png'}")
-        if top_p_fraction > 0:
-            print(f"[info] top-{top_p_fraction*100:.1f}% mean: {top_p_value:.6f}, fused score: {fused_score:.6f}")
-        else:
-            print(f"[info] fused score equals baseline: {baseline_score:.6f}")
 
 if __name__ == "__main__":
     main()
