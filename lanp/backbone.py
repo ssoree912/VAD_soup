@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
@@ -167,11 +168,23 @@ def _load_backbone_module(module_label: str, relative_path: str, repo_root: Path
     module_path = repo_root / relative_path
     if not module_path.exists():
         raise FileNotFoundError(f"Expected backbone file not found: {module_path}")
+    # Ensure the backbone repo is at the front of sys.path so its local `models`
+    # package is resolved instead of any top-level `models` in this project.
+    repo_root_str = str(repo_root)
+    added_sys_path = False
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+        added_sys_path = True
+
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load backbone module {module_label} from {module_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[assignment]
+    try:
+        spec.loader.exec_module(module)  # type: ignore[assignment]
+    finally:
+        if added_sys_path and repo_root_str in sys.path:
+            sys.path.remove(repo_root_str)
     return module
 
 
