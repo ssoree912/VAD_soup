@@ -176,6 +176,15 @@ def _load_backbone_module(module_label: str, relative_path: str, repo_root: Path
         sys.path.insert(0, repo_root_str)
         added_sys_path = True
 
+    # Drop any previously-imported top-level `models` that point outside the backbone repo
+    # to avoid import cache collisions.
+    removed_modules = {}
+    for name, mod in list(sys.modules.items()):
+        if name == "models" or name.startswith("models."):
+            mod_path = getattr(mod, "__file__", "") or ""
+            if repo_root_str not in mod_path:
+                removed_modules[name] = sys.modules.pop(name)
+
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load backbone module {module_label} from {module_path}")
@@ -185,6 +194,7 @@ def _load_backbone_module(module_label: str, relative_path: str, repo_root: Path
     finally:
         if added_sys_path and repo_root_str in sys.path:
             sys.path.remove(repo_root_str)
+        sys.modules.update(removed_modules)
     return module
 
 
