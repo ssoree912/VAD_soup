@@ -9,6 +9,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
+import yaml
 from tqdm import tqdm
 
 from detector import YOLOWorldDetector  # 네가 만든 YOLOWorldDetector
@@ -23,6 +24,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heatmaps_root", required=True, help="Root with <video>/<frame>_err.npy heatmaps.")
     parser.add_argument("--output_root", required=True, help="Where <video>/detections.npy will be saved.")
     parser.add_argument("--videos", nargs="*", default=None, help="Optional subset of video ids.")
+    parser.add_argument(
+        "--split_file",
+        default=None,
+        help="Optional split file (e.g., test_split.txt). If provided, videos are read from here unless --videos is set.",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config (e.g., config_sh.yaml). If provided, uses testing_split inside the config when --videos/--split_file are not set.",
+    )
 
     parser.add_argument("--weights", default="yolov8l-world.pt")
     parser.add_argument(
@@ -71,7 +82,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def iter_frames(video_dir: Path) -> List[Path]:
-    return sorted([p for p in video_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS])
+    """Return sorted list of frame paths inside a video directory.
+
+    Uses glob on common image extensions to be robust to directory contents.
+    """
+    frames = sorted(
+        list(video_dir.glob("*.jpg"))
+        + list(video_dir.glob("*.jpeg"))
+        + list(video_dir.glob("*.png"))
+        + list(video_dir.glob("*.bmp"))
+    )
+    return frames
 
 
 def collect_heatmap_maxima(root: Path, videos: Sequence[str]) -> List[float]:
@@ -153,7 +174,36 @@ def main() -> None:
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    videos = args.videos or sorted([p.name for p in frames_root.iterdir() if p.is_dir()])
+    if args.videos:
+        videos = args.videos
+    elif args.split_file:
+        split_path = Path(args.split_file)
+        split_ids = []
+        with split_path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                vid = line.split(",")[0]
+                split_ids.append(vid)
+        videos = split_ids
+    elif args.config:
+        cfg = yaml.safe_load(Path(args.config).read_text())
+        split = cfg.get("testing_split")
+        if split is None:
+            raise ValueError(f"--config provided but no 'testing_split' key found in {args.config}")
+        split_path = Path(split)
+        split_ids = []
+        with split_path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                vid = line.split(",")[0]
+                split_ids.append(vid)
+        videos = split_ids
+    else:
+        videos = sorted([p.name for p in frames_root.iterdir() if p.is_dir()])
 
     # 프레임 게이트값: 명시 값 > percentile 순
     frame_gate = args.frame_gate_value
@@ -174,20 +224,30 @@ def main() -> None:
 
     total_detected = 0
     total_frames = 0
+    skipped_existing = 0
+    missing_heatmaps = 0
+    empty_frame_dirs = 0
 
     for vid in tqdm(videos, desc="Videos"):
         video_dir = frames_root / vid
         heat_dir = heatmaps_root / vid
         if not video_dir.exists() or not heat_dir.exists():
+            if not heat_dir.exists():
+                missing_heatmaps += 1
             continue
 
         out_vid_dir = output_root / vid
         out_file = out_vid_dir / "detections.npy"
         if out_file.exists() and not args.overwrite:
+            skipped_existing += 1
             continue
 
         frame_paths = iter_frames(video_dir)
         num_frames = len(frame_paths)
+        if not frame_paths:
+            print(f"[warn] no frames found for video {vid} at {video_dir}")
+            empty_frame_dirs += 1
+            continue
 
         boxes_seq: List[np.ndarray] = []
         scores_seq: List[np.ndarray] = []
@@ -279,6 +339,12 @@ def main() -> None:
         np.save(out_file, payload, allow_pickle=True)
 
     print(f"[yolo-world] boxes kept: {total_detected}, frames visited: {total_frames}")
+    if skipped_existing:
+        print(f"[info] skipped {skipped_existing} videos because detections.npy already exists (use --overwrite to recompute)")
+    if missing_heatmaps:
+        print(f"[info] skipped {missing_heatmaps} videos because heatmaps were missing under {heatmaps_root}")
+    if empty_frame_dirs:
+        print(f"[info] skipped {empty_frame_dirs} videos because no frame images were found")
 
 
 if __name__ == "__main__":
