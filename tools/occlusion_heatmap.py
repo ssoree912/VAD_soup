@@ -139,6 +139,19 @@ def load_video_features(cfg: SimpleNamespace, video_name: str) -> np.ndarray:
     return features.astype(np.float32, copy=False)
 
 
+def count_video_segments(cfg: SimpleNamespace, video_name: str) -> int:
+    """Lightweight helper to check how many snippets exist for a video."""
+    feature_path = Path(cfg.feature_path) / f"{video_name}{cfg.feature_name_end}"
+    if not feature_path.exists():
+        return 0
+    arr = np.load(feature_path, mmap_mode="r")
+    if arr.ndim == 3:
+        return arr.shape[0]
+    if arr.ndim == 2:
+        return arr.shape[0]
+    return 0
+
+
 def dataset_roots(cfg: SimpleNamespace, split: str) -> Tuple[Path, Path]:
     dataset_root = Path(cfg.feature_path).resolve().parent
     split_root = dataset_root / ("testing" if split == "test" else "training")
@@ -575,15 +588,26 @@ def main() -> None:
         if vid not in score_dict:
             print(f"[warn] video {vid} not found in LANP scores, skipping")
             continue
+        num_segments = count_video_segments(cfg, vid)
+        if num_segments <= 0:
+            print(f"[warn] no feature file found for {vid}, skipping")
+            continue
+
         scores = np.asarray(score_dict[vid], dtype=np.float32).reshape(-1)
         thr = np.percentile(scores, 100.0 - args.top_percent)
-        idxs = np.nonzero(scores >= thr)[0].tolist()
-        if not idxs:
-            print(f"[warn] no segments above threshold for {vid}")
+        frame_idxs = np.nonzero(scores >= thr)[0].tolist()
+        # Map frame indices to snippet indices using segment_stride, and drop OOR.
+        seg_idxs = sorted({int(idx // segment_stride) for idx in frame_idxs if idx >= 0})
+        seg_idxs = [i for i in seg_idxs if i < num_segments]
+        if not seg_idxs:
+            print(f"[warn] no valid segments above threshold for {vid} (num_segments={num_segments})")
             continue
         if args.verbose:
-            print(f"[info] {vid}: top {args.top_percent:.1f}% threshold={thr:.4f}, segments={len(idxs)}")
-        for seg_idx in idxs:
+            print(
+                f"[info] {vid}: top {args.top_percent:.1f}% threshold={thr:.4f}, "
+                f"segments={len(seg_idxs)} (num_segments={num_segments})"
+            )
+        for seg_idx in seg_idxs:
             try:
                 run_for_segment(vid, seg_idx)
             except Exception as e:  # noqa: BLE001
