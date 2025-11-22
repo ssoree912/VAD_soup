@@ -277,6 +277,8 @@ class LANPResNeXtBackbone:
                 self.Normalize(opt.mean, [1.0, 1.0, 1.0]),
             ]
         )
+        # Default fill color for occlusion: dataset mean in RGB (0-255 scale).
+        self.fill_rgb = np.array(opt.mean, dtype=np.float32)
 
     def _pad_frames(self, frames: Sequence[np.ndarray]) -> List[np.ndarray]:
         if len(frames) >= self.sample_duration:

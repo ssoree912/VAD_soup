@@ -39,9 +39,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", required=True, help="Path to YAML config used for training.")
     parser.add_argument("--checkpoint", required=True, help="Trained AD_Model checkpoint (.pt).")
-    parser.add_argument("--video-name", required=True, help="Video identifier (e.g. 01_0015).")
+    parser.add_argument("--video-name", default=None, help="Video identifier (e.g. 01_0015). Required unless --lanp_scores is provided.")
     parser.add_argument("--video-path", default=None, help="Optional explicit path to frames folder or video file.")
-    parser.add_argument("--segment-index", type=int, required=True, help="Temporal snippet index to explain.")
+    parser.add_argument("--segment-index", type=int, default=None, help="Temporal snippet index to explain. Required unless --lanp_scores is provided.")
     parser.add_argument("--split", choices=["train", "test"], default="test", help="Dataset split containing the video.")
     parser.add_argument("--backbone-weights", required=True, help="Weights file for the 3D backbone (ResNeXt).")
     parser.add_argument("--grid-sizes", type=int, nargs="+", default=[8],
@@ -74,6 +74,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resnet-shortcut", default="B", help="Shortcut type used when training features (default: B).")
     parser.add_argument("--sample-size", type=int, default=112, help="Spatial crop size used for feature extraction.")
     parser.add_argument("--verbose", action="store_true", help="Print intermediate diagnostics.")
+    # LANP score-driven batch mode
+    parser.add_argument("--lanp_scores", default=None, help="Optional npy/npz dict of LANP frame/snippet scores.")
+    parser.add_argument("--top_percent", type=float, default=5.0,
+                        help="When --lanp_scores is set, process snippets with scores in the top p%% per video.")
+    parser.add_argument("--videos", nargs="*", default=None,
+                        help="Optional subset of videos to process when using --lanp_scores.")
     return parser.parse_args()
 
 
@@ -83,6 +89,28 @@ def load_yaml_config(path: str) -> dict:
     if not isinstance(cfg, dict):
         raise ValueError(f"Configuration file {path} did not produce a dictionary.")
     return cfg
+
+
+def load_lanp_scores(path: Path) -> dict:
+    """Load LANP frame/snippet scores saved as npy/npz (dict-like)."""
+    arr = np.load(path, allow_pickle=True)
+    data = None
+    if isinstance(arr, np.lib.npyio.NpzFile):
+        if "data" in arr.files:
+            maybe = arr["data"]
+            if isinstance(maybe, np.ndarray) and maybe.dtype == object and maybe.size == 1 and isinstance(
+                maybe.flat[0], dict
+            ):
+                data = maybe.flat[0]
+        else:
+            data = {k: np.asarray(arr[k]) for k in arr.files}
+    elif isinstance(arr, np.ndarray) and arr.dtype == object:
+        maybe = arr.item()
+        if isinstance(maybe, dict):
+            data = maybe
+    if data is None:
+        raise ValueError(f"Unsupported LANP score format in {path}")
+    return data
 
 
 def resolve_device(preferred: str | None) -> torch.device:
@@ -388,10 +416,181 @@ def main() -> None:
     cfg_dict = load_yaml_config(args.config)
     cfg = to_namespace(cfg_dict)
 
+    if args.lanp_scores is None:
+        if args.video_name is None or args.segment_index is None:
+            raise ValueError("--video-name and --segment-index are required unless --lanp_scores is provided.")
+    else:
+        if not (0.0 < args.top_percent <= 100.0):
+            raise ValueError("--top_percent must be in (0, 100].")
+
     device = resolve_device(args.device or cfg_dict.get("device"))
     set_seeds(args.seed)
 
-    features_np = load_video_features(cfg, args.video_name)
+    extractor = BackboneFeatureExtractor(
+        weights_path=Path(args.backbone_weights),
+        device=device,
+        sample_duration=getattr(cfg, "segment_len", 16),
+        sample_size=args.sample_size,
+        model_name=args.model_name,
+        model_depth=args.model_depth,
+        resnext_cardinality=args.resnext_cardinality,
+        resnet_shortcut=args.resnet_shortcut,
+    )
+
+    fill_rgb = extractor.fill_rgb.copy()
+    if args.fill_mode == "zero":
+        fill_rgb.fill(0.0)
+
+    model = prepare_model(cfg, Path(args.checkpoint), device)
+    segment_len = getattr(cfg, "segment_len", 16)
+    segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
+
+    # Unified runner per (video, segment)
+    def run_for_segment(video_name: str, segment_index: int) -> None:
+        features_np = load_video_features(cfg, video_name)
+        norm_mode = args.feature_norm if args.feature_norm is not None else getattr(cfg, "feature_norm", None)
+        stats_path = args.feature_stats if args.feature_stats is not None else getattr(cfg, "feature_stats", None)
+        feature_normalizer = FeatureNormalizer(norm_mode, stats_path)
+
+        if args.normalize_baseline and feature_normalizer.mode != "none":
+            features_np = np.apply_along_axis(feature_normalizer.apply, 1, features_np)
+
+        num_segments = features_np.shape[0]
+        if segment_index < 0 or segment_index >= num_segments:
+            raise IndexError(
+                f"segment-index {segment_index} out of range for video {video_name} "
+                f"(available snippets: 0..{num_segments - 1})."
+            )
+
+        features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
+        start = segment_index * segment_stride
+
+        if args.video_path:
+            explicit_path = Path(args.video_path)
+            if explicit_path.is_dir():
+                frames_list = load_segment_from_frames_dir(explicit_path, start, segment_len)
+            elif explicit_path.is_file():
+                frames_list = load_segment_from_video_file(explicit_path, start, segment_len)
+            else:
+                raise FileNotFoundError(f"Specified video-path not found: {explicit_path}")
+        else:
+            frames_root, videos_root = dataset_roots(cfg, args.split)
+            frames_list = load_segment_frames(video_name, segment_index, segment_len, frames_root, videos_root)
+        frames_np = collate_frames(frames_list)
+
+        baseline_scores = run_model(model, features_tensor, device)
+        baseline_score = baseline_scores[segment_index].item()
+
+        if args.verbose:
+            print(f"[info] {video_name} seg {segment_index}: baseline score {baseline_score:.6f}")
+
+        rng = np.random.default_rng(args.seed)
+        output_root = Path(args.output_dir)
+        dest_dir = output_root / video_name / f"seg{segment_index:03d}"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        per_scale_heatmaps: List[Tuple[int, np.ndarray]] = []
+
+        for grid_size in args.grid_sizes:
+            if args.masking == "grid":
+                grid_heatmap = grid_occlusion_heatmap(
+                    features_tensor=features_tensor,
+                    baseline_score=baseline_score,
+                    segment_index=segment_index,
+                    frames=frames_np,
+                    extractor=extractor,
+                    model=model,
+                    grid_size=grid_size,
+                    fill_rgb=fill_rgb,
+                    device=device,
+                    feature_normalizer=feature_normalizer,
+                )
+            else:
+                grid_heatmap = rise_occlusion_heatmap(
+                    features_tensor=features_tensor,
+                    baseline_score=baseline_score,
+                    segment_index=segment_index,
+                    frames=frames_np,
+                    extractor=extractor,
+                    model=model,
+                    grid_size=grid_size,
+                    num_masks=args.num_masks,
+                    on_prob=args.rise_on_prob,
+                    fill_rgb=fill_rgb,
+                    device=device,
+                    rng=rng,
+                    feature_normalizer=feature_normalizer,
+                )
+
+            if args.delta_relu:
+                grid_heatmap = np.maximum(grid_heatmap, 0.0)
+
+            frame_center = frames_np[len(frames_np) // 2]
+            heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
+
+            per_scale_heatmaps.append((grid_size, heatmap_up))
+
+            scale_base = f"{args.masking}_g{grid_size}"
+            np.save(dest_dir / f"{scale_base}_grid.npy", grid_heatmap)
+            np.save(dest_dir / f"{scale_base}_heatmap.npy", heatmap_up)
+            overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), heatmap_up)
+            cv2.imwrite(str(dest_dir / f"{scale_base}_overlay.png"), overlay)
+
+            if args.verbose:
+                max_pos = np.unravel_index(np.argmax(grid_heatmap), grid_heatmap.shape)
+                print(f"[info] grid {grid_size}: strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
+
+        fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
+        frame_center = frames_np[len(frames_np) // 2]
+        fused_overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), fused_heatmap)
+
+        fused_base = f"{args.masking}_fused"
+        np.save(dest_dir / f"{fused_base}_heatmap.npy", fused_heatmap)
+        cv2.imwrite(str(dest_dir / f"{fused_base}_overlay.png"), fused_overlay)
+
+        top_p_fraction = max(0.0, min(args.top_p, 1.0))
+        top_p_value = top_p_mean(fused_heatmap, top_p_fraction) if top_p_fraction > 0 else 0.0
+        fused_score = args.alpha * top_p_value + (1.0 - args.alpha) * baseline_score if top_p_fraction > 0 else baseline_score
+
+        with open(dest_dir / f"{fused_base}_meta.txt", "w") as meta:
+            meta.write(f"baseline_score: {baseline_score:.6f}\n")
+            meta.write(f"top_p_fraction: {top_p_fraction}\n")
+            meta.write(f"top_p_mean: {top_p_value:.6f}\n")
+            meta.write(f"fused_score: {fused_score:.6f}\n")
+            meta.write(f"grid_sizes: {args.grid_sizes}\n")
+            meta.write(f"masking: {args.masking}\n")
+            meta.write(f"delta_relu: {args.delta_relu}\n")
+            meta.write(f"feature_norm: {feature_normalizer.mode}\n")
+
+    # --------- Single run vs LANP-driven batch ---------
+    if args.lanp_scores is None:
+        run_for_segment(args.video_name, args.segment_index)
+        return
+
+    # LANP-driven batch mode
+    score_dict = load_lanp_scores(Path(args.lanp_scores))
+    target_videos = args.videos if args.videos else sorted(score_dict.keys())
+
+    for vid in target_videos:
+        if vid not in score_dict:
+            print(f"[warn] video {vid} not found in LANP scores, skipping")
+            continue
+        scores = np.asarray(score_dict[vid], dtype=np.float32).reshape(-1)
+        thr = np.percentile(scores, 100.0 - args.top_percent)
+        idxs = np.nonzero(scores >= thr)[0].tolist()
+        if not idxs:
+            print(f"[warn] no segments above threshold for {vid}")
+            continue
+        if args.verbose:
+            print(f"[info] {vid}: top {args.top_percent:.1f}% threshold={thr:.4f}, segments={len(idxs)}")
+        for seg_idx in idxs:
+            try:
+                run_for_segment(vid, seg_idx)
+            except Exception as e:  # noqa: BLE001
+                print(f"[error] failed on {vid} seg {seg_idx}: {e}")
+        # optional: separate logs between videos
+        if args.verbose:
+            print(f"[info] finished {vid}")
     norm_mode = args.feature_norm if args.feature_norm is not None else getattr(cfg, "feature_norm", None)
     stats_path = args.feature_stats if args.feature_stats is not None else getattr(cfg, "feature_stats", None)
     feature_normalizer = FeatureNormalizer(norm_mode, stats_path)
