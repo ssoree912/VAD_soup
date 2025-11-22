@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torchvision.transforms as T
+from PIL import Image
 
 
 class ResNetFeatureExtractor(nn.Module):
@@ -45,9 +46,9 @@ class ResNetFeatureExtractor(nn.Module):
             torch.Tensor of shape (C,h,w)
         """
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        x = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
-        x = T.Resize((256, 256))(x)
-        x = self.transform(x).unsqueeze(0).to(self.device)
+        pil = Image.fromarray(img_rgb)
+        pil = T.Resize((256, 256))(pil)
+        x = self.transform(pil).unsqueeze(0).to(self.device)
         feat = self.features(x)
         return feat.squeeze(0)
 

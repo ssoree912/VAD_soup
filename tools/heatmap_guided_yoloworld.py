@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Run YOLO-World only on anomaly heatmaps and save LANP-compatible detections."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
+
+import cv2
+import numpy as np
+from tqdm import tqdm
+
+from detector import YOLOWorldDetector
+
+
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Heatmap-gated YOLO-World detections.")
+    parser.add_argument("--frames_root", required=True, help="Root with <video> frame folders.")
+    parser.add_argument("--heatmaps_root", required=True, help="Root with <video>/<frame>_err.npy heatmaps.")
+    parser.add_argument("--output_root", required=True, help="Where <video>/detections.npy will be saved.")
+    parser.add_argument("--videos", nargs="*", default=None, help="Optional subset of video ids.")
+
+    parser.add_argument("--weights", default="yolov8l-world.pt")
+    parser.add_argument(
+        "--classes",
+        nargs="*",
+        default=[
+            "person",
+            "crowd",
+            "person running",
+            "person falling",
+            "person biking",
+            "person skating",
+            "abandoned object",
+            "suspicious bag",
+        ],
+        help="YOLO-World textual prompts.",
+    )
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--iou", type=float, default=0.5)
+    parser.add_argument("--imgsz", type=int, default=640)
+
+    parser.add_argument("--frame_gate_value", type=float, default=None, help="Absolute threshold on heatmap.max.")
+    parser.add_argument(
+        "--frame_gate_percentile",
+        type=float,
+        default=None,
+        help="Percentile over heatmap maxima to derive gate threshold.",
+    )
+    parser.add_argument("--box_heat_threshold", type=float, default=None, help="Absolute threshold on box heat score.")
+    parser.add_argument(
+        "--box_heat_percentile",
+        type=float,
+        default=95.0,
+        help="Per-frame percentile of heatmap used as box heat threshold.",
+    )
+    parser.add_argument("--top_k", type=int, default=3, help="Per frame keep at most K boxes after filtering.")
+    parser.add_argument("--overwrite", action="store_true")
+    return parser.parse_args()
+
+
+def iter_frames(video_dir: Path) -> List[Path]:
+    return sorted([p for p in video_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS])
+
+
+def collect_heatmap_maxima(root: Path, videos: Sequence[str]) -> List[float]:
+    maxima: List[float] = []
+    for vid in videos:
+        vid_dir = root / vid
+        if not vid_dir.exists():
+            continue
+        for err_path in vid_dir.glob("*_err.npy"):
+            arr = np.load(err_path)
+            maxima.append(float(arr.max()))
+    return maxima
+
+
+def box_heat_scores(boxes: np.ndarray, heatmap: np.ndarray, frame_shape: Tuple[int, int]) -> np.ndarray:
+    if boxes.size == 0:
+        return np.zeros((0,), dtype=np.float32)
+    frame_h, frame_w = frame_shape
+    heat_h, heat_w = heatmap.shape
+    sx = heat_w / max(frame_w, 1)
+    sy = heat_h / max(frame_h, 1)
+    scores = np.zeros((boxes.shape[0],), dtype=np.float32)
+    for i, box in enumerate(boxes):
+        x1, y1, x2, y2 = box.astype(float)
+        hx1 = int(np.clip(np.floor(x1 * sx), 0, heat_w - 1))
+        hx2 = int(np.clip(np.ceil(x2 * sx), hx1 + 1, heat_w))
+        hy1 = int(np.clip(np.floor(y1 * sy), 0, heat_h - 1))
+        hy2 = int(np.clip(np.ceil(y2 * sy), hy1 + 1, heat_h))
+        patch = heatmap[hy1:hy2, hx1:hx2]
+        if patch.size == 0:
+            scores[i] = 0.0
+        else:
+            scores[i] = float(patch.mean())
+    return scores
+
+
+def filter_boxes(
+    boxes: np.ndarray,
+    classes: np.ndarray,
+    scores: np.ndarray,
+    heat_scores: np.ndarray,
+    box_threshold: Optional[float],
+    top_k: int,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if boxes.size == 0:
+        return boxes, classes, scores, heat_scores
+    mask = np.ones(len(boxes), dtype=bool)
+    if box_threshold is not None:
+        mask &= heat_scores >= box_threshold
+    boxes, classes, scores, heat_scores = boxes[mask], classes[mask], scores[mask], heat_scores[mask]
+    if top_k > 0 and boxes.shape[0] > top_k:
+        order = np.argsort(heat_scores)[-top_k:]
+        boxes = boxes[order]
+        classes = classes[order]
+        scores = scores[order]
+        heat_scores = heat_scores[order]
+    return boxes, classes, scores, heat_scores
+
+
+def main() -> None:
+    args = parse_args()
+    frames_root = Path(args.frames_root)
+    heatmaps_root = Path(args.heatmaps_root)
+    output_root = Path(args.output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    videos = args.videos or sorted([p.name for p in frames_root.iterdir() if p.is_dir()])
+
+    frame_gate = args.frame_gate_value
+    if args.frame_gate_percentile is not None:
+        max_vals = collect_heatmap_maxima(heatmaps_root, videos)
+        if max_vals:
+            frame_gate = float(np.percentile(max_vals, args.frame_gate_percentile))
+            print(f"[gate] frame threshold (p{args.frame_gate_percentile}): {frame_gate:.4f}")
+
+    detector = YOLOWorldDetector(
+        weights=args.weights,
+        classes=args.classes,
+        device=args.device,
+        conf=args.conf,
+        iou=args.iou,
+        imgsz=args.imgsz,
+    )
+
+    total_detected = 0
+    total_frames = 0
+    for vid in tqdm(videos, desc="Videos"):
+        video_dir = frames_root / vid
+        heat_dir = heatmaps_root / vid
+        if not video_dir.exists() or not heat_dir.exists():
+            continue
+        out_file = output_root / vid / "detections.npy"
+        if out_file.exists() and not args.overwrite:
+            continue
+        frame_paths = iter_frames(video_dir)
+        num_frames = len(frame_paths)
+        boxes_seq: List[np.ndarray] = []
+        scores_seq: List[np.ndarray] = []
+        classes_seq: List[np.ndarray] = []
+        processed_flags: List[bool] = []
+        for frame_path in frame_paths:
+            total_frames += 1
+            err_path = heat_dir / f"{frame_path.stem}_err.npy"
+            if not err_path.exists():
+                boxes = np.zeros((0, 4), dtype=np.float32)
+                classes = np.zeros((0,), dtype=np.int32)
+                scores = np.zeros((0,), dtype=np.float32)
+                processed_flags.append(False)
+                boxes_seq.append(boxes)
+                scores_seq.append(scores)
+                classes_seq.append(classes)
+                continue
+            heatmap = np.load(err_path).astype(np.float32)
+            frame_bgr = cv2.imread(str(frame_path))
+            if frame_bgr is None:
+                processed_flags.append(False)
+                boxes_seq.append(np.zeros((0, 4), dtype=np.float32))
+                scores_seq.append(np.zeros((0,), dtype=np.float32))
+                classes_seq.append(np.zeros((0,), dtype=np.int32))
+                continue
+            heat_max = float(heatmap.max())
+            if frame_gate is not None and heat_max < frame_gate:
+                processed_flags.append(False)
+                boxes_seq.append(np.zeros((0, 4), dtype=np.float32))
+                scores_seq.append(np.zeros((0,), dtype=np.float32))
+                classes_seq.append(np.zeros((0,), dtype=np.int32))
+                continue
+
+            boxes, classes, scores = detector.detect_image(frame_bgr)
+            if boxes.size == 0:
+                processed_flags.append(True)
+                boxes_seq.append(boxes)
+                scores_seq.append(scores)
+                classes_seq.append(classes)
+                continue
+
+            heat_scores = box_heat_scores(boxes, heatmap, frame_bgr.shape[:2])
+            box_thr = args.box_heat_threshold
+            if args.box_heat_percentile is not None:
+                box_thr = float(np.percentile(heatmap, args.box_heat_percentile))
+            boxes, classes, scores, _ = filter_boxes(
+                boxes,
+                classes,
+                scores,
+                heat_scores,
+                box_thr,
+                args.top_k,
+            )
+            processed_flags.append(True)
+            boxes_seq.append(boxes)
+            scores_seq.append(scores)
+            classes_seq.append(classes)
+            total_detected += boxes.shape[0]
+
+        payload = {
+            "video": vid,
+            "frame_indices": np.arange(num_frames, dtype=np.int32),
+            "frame_files": np.array([p.name for p in frame_paths], dtype=object),
+            "boxes": np.array(boxes_seq, dtype=object),
+            "scores": np.array(scores_seq, dtype=object),
+            "classes": np.array(classes_seq, dtype=object),
+            "processed": np.array(processed_flags, dtype=bool),
+            "num_frames": num_frames,
+        }
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        np.save(out_file, payload, allow_pickle=True)
+    print(f"[yolo-world] boxes kept: {total_detected}, frames visited: {total_frames}")
+
+
+if __name__ == "__main__":
+    main()
