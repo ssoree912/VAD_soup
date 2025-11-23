@@ -5,6 +5,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 
 from datasets import FramePredictionDataset
@@ -50,12 +51,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base_channels", type=int, default=64)
     parser.add_argument("--out_dir", type=str, default="artifacts/att_unet_predictor",
                         help="Directory to save checkpoints.")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Optional path to a checkpoint (.pth) to resume training from.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Enable cuDNN autotuner for fixed-size inputs on GPU
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
+
+    use_amp = device.type == "cuda"
+    scaler = GradScaler(enabled=use_amp)
 
     dataset = FramePredictionDataset(
         args.frames_root,
@@ -71,8 +81,9 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         drop_last=True,
+        persistent_workers=(args.num_workers > 0 and device.type == "cuda"),
     )
 
     val_loader: Optional[DataLoader] = None
@@ -90,8 +101,9 @@ def main() -> None:
             batch_size=args.val_batch_size or args.batch_size,
             shuffle=False,
             num_workers=args.num_workers,
-            pin_memory=True,
+            pin_memory=(device.type == "cuda"),
             drop_last=False,
+            persistent_workers=(args.num_workers > 0 and device.type == "cuda"),
         )
 
     model = AttUNetPredictor(t=args.t, base_ch=args.base_channels).to(device)
@@ -102,8 +114,26 @@ def main() -> None:
 
     best_val = float("inf")
     best_epoch = -1
+    start_epoch = 0
 
-    for epoch in range(args.epochs):
+    resume_path = Path(args.resume) if args.resume is not None else None
+    if resume_path is not None and resume_path.is_file():
+        ckpt = torch.load(resume_path, map_location=device)
+        state_dict = ckpt.get("state_dict", ckpt)
+        model.load_state_dict(state_dict)
+        if "optimizer" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        if "scaler" in ckpt and ckpt["scaler"] is not None and isinstance(scaler, GradScaler):
+            scaler.load_state_dict(ckpt["scaler"])
+        if "epoch" in ckpt:
+            start_epoch = int(ckpt["epoch"])
+        if "best_val" in ckpt:
+            best_val = float(ckpt["best_val"])
+        if "best_epoch" in ckpt:
+            best_epoch = int(ckpt["best_epoch"])
+        print(f"[resume] Loaded checkpoint from {resume_path} (epoch={start_epoch})")
+
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         total_loss = 0.0
         total_samples = 0
@@ -112,12 +142,18 @@ def main() -> None:
             x = x.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
 
-            pred = model(x)
-            loss = loss_fn(pred, target, args.alpha_rec, args.alpha_gra)
+            optimizer.zero_grad(set_to_none=True)
+            with autocast(enabled=use_amp):
+                pred = model(x)
+                loss = loss_fn(pred, target, args.alpha_rec, args.alpha_gra)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            if use_amp:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
 
             bs = x.size(0)
             total_loss += loss.item() * bs
@@ -150,8 +186,12 @@ def main() -> None:
                     {
                         "epoch": epoch + 1,
                         "state_dict": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scaler": scaler.state_dict() if use_amp else None,
                         "args": vars(args),
                         "val_loss": val_loss,
+                        "best_val": best_val,
+                        "best_epoch": best_epoch,
                     },
                     out_dir / "att_unet_best.pth",
                 )
@@ -163,8 +203,12 @@ def main() -> None:
             {
                 "epoch": epoch + 1,
                 "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scaler": scaler.state_dict() if use_amp else None,
                 "args": vars(args),
                 "val_loss": val_loss,
+                "best_val": best_val,
+                "best_epoch": best_epoch,
             },
             ckpt_path,
         )
