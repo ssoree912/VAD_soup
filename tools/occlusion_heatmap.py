@@ -88,6 +88,16 @@ def parse_args() -> argparse.Namespace:
                         help="When --lanp_scores is set, process snippets with scores in the top p%% per video.")
     parser.add_argument("--videos", nargs="*", default=None,
                         help="Optional subset of videos to process when using --lanp_scores.")
+    parser.add_argument(
+        "--frame-index",
+        type=int,
+        default=None,
+        help=(
+            "Target frame index for visualization/GT. "
+            "If provided, this frame is used for overlays/GT even when the snippet center differs. "
+            "When --segment-index is omitted, it will be inferred from frame_index // segment_stride."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -597,13 +607,19 @@ def main() -> None:
     args = parse_args()
     cfg_dict = load_yaml_config(args.config)
     cfg = to_namespace(cfg_dict)
+    segment_len = getattr(cfg, "segment_len", 16)
+    segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
 
     if args.lanp_scores is None:
-        if args.video_name is None or args.segment_index is None:
-            raise ValueError("--video-name and --segment-index are required unless --lanp_scores is provided.")
+        if args.video_name is None:
+            raise ValueError("--video-name is required when --lanp_scores is not provided.")
+        if args.segment_index is None:
+            if args.frame_index is None:
+                raise ValueError("Single mode: provide either --segment-index or --frame-index.")
+            args.segment_index = args.frame_index // segment_stride
     else:
         if not (0.0 < args.top_percent <= 100.0):
-            raise ValueError("--top_percent must be in (0, 100].")
+            raise ValueError("--top_percent must be in (0, 100.0].")
 
     device = resolve_device(args.device or cfg_dict.get("device"))
     set_seeds(args.seed)
@@ -624,8 +640,6 @@ def main() -> None:
         fill_rgb.fill(0.0)
 
     model = prepare_model(cfg, Path(args.checkpoint), device)
-    segment_len = getattr(cfg, "segment_len", 16)
-    segment_stride = args.segment_stride or getattr(cfg, "segment_stride", segment_len)
 
     det_root = Path(args.detections_root) if args.detections_root else None
     det_cache: dict[str, Optional[dict]] = {}
@@ -677,8 +691,9 @@ def main() -> None:
         features_tensor = torch.from_numpy(features_np).unsqueeze(0).unsqueeze(0).to(device)
         start = segment_index * segment_stride
         center_frame_index = start + segment_len // 2
+        target_frame_index = args.frame_index if args.frame_index is not None else center_frame_index
 
-        center_frame_name: Optional[str] = None
+        target_frame_name: Optional[str] = None
         if args.video_path:
             explicit_path = Path(args.video_path)
             if explicit_path.is_dir():
@@ -690,8 +705,10 @@ def main() -> None:
         else:
             frames_root, videos_root = dataset_roots(cfg, args.split)
             frames_list = load_segment_frames(video_name, segment_index, segment_len, frames_root, videos_root)
-            center_frame_name = resolve_frame_name(frames_root, video_name, center_frame_index)
+            target_frame_name = resolve_frame_name(frames_root, video_name, target_frame_index)
         frames_np = collate_frames(frames_list)
+        rel_idx = int(np.clip(target_frame_index - start, 0, len(frames_np) - 1))
+        target_frame = frames_np[rel_idx]
 
         baseline_scores = run_model(model, features_tensor, device)
         baseline_score = baseline_scores[segment_index].item()
@@ -740,16 +757,16 @@ def main() -> None:
             if args.delta_relu:
                 grid_heatmap = np.maximum(grid_heatmap, 0.0)
 
-            frame_center = frames_np[len(frames_np) // 2]
-            heatmap_up = upscale_heatmap(grid_heatmap, frame_center.shape[:2], args.gaussian_sigma)
+            frame_for_vis = target_frame
+            heatmap_up = upscale_heatmap(grid_heatmap, frame_for_vis.shape[:2], args.gaussian_sigma)
 
             per_scale_heatmaps.append((grid_size, heatmap_up))
 
             scale_base = f"{args.masking}_g{grid_size}"
             np.save(dest_dir / f"{scale_base}_grid.npy", grid_heatmap)
             np.save(dest_dir / f"{scale_base}_heatmap.npy", heatmap_up)
-            overlay = colorize_heatmap(cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR), heatmap_up)
-            boxes = get_boxes_for_frame(video_name, center_frame_name, center_frame_index)
+            overlay = colorize_heatmap(cv2.cvtColor(frame_for_vis, cv2.COLOR_RGB2BGR), heatmap_up)
+            boxes = get_boxes_for_frame(video_name, target_frame_name, target_frame_index)
             overlay_boxes = overlay.copy()
             if boxes is not None and getattr(boxes, "size", 0) > 0:
                 for box in boxes:
@@ -763,9 +780,8 @@ def main() -> None:
                 print(f"[info] grid {grid_size}: strongest cell {max_pos} with delta {grid_heatmap[max_pos]:.6f}")
 
         fused_heatmap = fuse_heatmaps([hm for _, hm in per_scale_heatmaps])
-        frame_center = frames_np[len(frames_np) // 2]
-        frame_center_bgr = cv2.cvtColor(frame_center, cv2.COLOR_RGB2BGR)
-        fused_overlay = colorize_heatmap(frame_center_bgr, fused_heatmap)
+        target_frame_bgr = cv2.cvtColor(target_frame, cv2.COLOR_RGB2BGR)
+        fused_overlay = colorize_heatmap(target_frame_bgr, fused_heatmap)
 
         pred_boxes = heatmap_to_bboxes(
             fused_heatmap,
@@ -777,7 +793,7 @@ def main() -> None:
             gt_cache,
             gt_root,
             video_name,
-            center_frame_index,
+            target_frame_index,
         )
 
         fused_overlay_boxes = fused_overlay.copy()
@@ -823,6 +839,7 @@ def main() -> None:
             meta.write(f"masking: {args.masking}\n")
             meta.write(f"delta_relu: {args.delta_relu}\n")
             meta.write(f"feature_norm: {feature_normalizer.mode}\n")
+            meta.write(f"target_frame_index: {target_frame_index}\n")
 
     # --------- Single run vs LANP-driven batch ---------
     if args.lanp_scores is None:
