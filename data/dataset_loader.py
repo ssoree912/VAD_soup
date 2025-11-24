@@ -11,6 +11,8 @@ def find_dataset_using_name(dataset_name):
         perx = 'sh'
     elif dataset_name == 'ucf-crime':
         perx = 'ucf'
+    elif dataset_name == 'sttad':
+        perx = 'sttad'
     else:
         perx = ''
     dataset_filename = "data." + "dataset_" + perx
