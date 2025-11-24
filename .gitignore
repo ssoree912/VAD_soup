@@ -16,7 +16,6 @@ results/
 visualizations/
 ckp/
 artifacts/
-soup/
 *.pth
 test_results/
 *.pt
