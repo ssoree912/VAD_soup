@@ -50,7 +50,8 @@ import torch
 import yaml
 
 ROOT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT_DIR.parent
+# Repository root (two levels up)
+PROJECT_ROOT = ROOT_DIR.parent.parent
 import sys  # noqa: E402
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

@@ -15,7 +15,8 @@ import torch
 import yaml
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(ROOT_DIR)
+# Repository root (two levels up)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(ROOT_DIR))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
