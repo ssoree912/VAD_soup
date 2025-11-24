@@ -13,6 +13,8 @@ def find_dataset_using_name(dataset_name):
         perx = 'ucf'
     elif dataset_name == 'sttad':
         perx = 'sttad'
+    elif dataset_name == 'tudat':
+        perx = 'tudat'
     else:
         perx = ''
     dataset_filename = "data." + "dataset_" + perx

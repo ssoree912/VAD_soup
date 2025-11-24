@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+import subprocess
+import shutil
+import tempfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 import numpy as np
 import torch
@@ -50,12 +53,15 @@ from spatial_transforms import Compose, Normalize, Scale, CenterCrop, ToTensor  
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ResNeXt-101(Kinetics)로 프레임 폴더 피처 추출")
-    p.add_argument("--frames_root", default="data/STTAD/rgb-images", help="클래스/비디오별 프레임 폴더 루트")
+    p.add_argument("--frames_root", default=None, help="클래스/비디오별 프레임 폴더 루트")
+    p.add_argument("--videos_root", default=None, help="비디오 파일 루트 (frames_root보다 우선)")
     p.add_argument("--output_root", default="data/STTAD/features", help="출력 루트 (class/video_res.npy)")
     p.add_argument("--model_path", required=True, help="resnext-101-kinetics.pth 가중치 경로")
     p.add_argument("--device", default=None, help="cpu|cuda|cuda:0|mps (미지정 시 자동)")
     p.add_argument("--batch_size", type=int, default=8, help="클립 배치 크기")
     p.add_argument("--exts", nargs="+", default=[".jpg", ".png"], help="프레임 확장자 목록")
+    p.add_argument("--video_exts", nargs="+", default=[".mp4", ".mov", ".avi"], help="비디오 확장자 목록")
+    p.add_argument("--temp_dir", default=None, help="비디오를 프레임으로 임시 추출할 디렉터리(기본: tmp).")
     return p.parse_args()
 
 
@@ -133,6 +139,13 @@ def iter_frame_dirs(frames_root: Path, exts: Iterable[str]) -> Iterable[Path]:
                 yield vid_dir
 
 
+def iter_video_files(videos_root: Path, exts: Iterable[str]) -> Iterable[Path]:
+    exts_norm = {e.lower() for e in exts}
+    for path in sorted(videos_root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in exts_norm:
+            yield path
+
+
 def load_clip(paths: List[Path], spatial, target_len: int) -> torch.Tensor | None:
     # 개별 프레임 로드 실패 시 건너뛰고, 유효 프레임만 사용
     imgs = []
@@ -201,13 +214,15 @@ def process_video(
 
 def main():
     args = parse_args()
-    frames_root = Path(args.frames_root).resolve()
+    frames_root = Path(args.frames_root).resolve() if args.frames_root else None
+    videos_root = Path(args.videos_root).resolve() if args.videos_root else None
     output_root = Path(args.output_root).resolve()
     model_path = Path(args.model_path).resolve()
     device = select_device(args.device)
 
     print(f"[info] using device: {device}")
     print(f"[info] frames_root={frames_root}")
+    print(f"[info] videos_root={videos_root}")
     print(f"[info] output_root={output_root}")
     print(f"[info] model_path={model_path}")
     print(f"[info] video repo at {VIDEO_REPO}")
@@ -215,19 +230,56 @@ def main():
     model, opt, spatial = load_model(model_path, device)
     exts = [e.lower() for e in args.exts]
 
-    for vid_dir in iter_frame_dirs(frames_root, exts):
-        rel_dir = vid_dir.relative_to(frames_root)
-        process_video(
-            frame_dir=vid_dir,
-            rel_dir=rel_dir,
-            model=model,
-            device=device,
-            spatial=spatial,
-            opt=opt,
-            output_root=output_root,
-            batch_size=args.batch_size,
-            exts=exts,
-        )
+    if videos_root:
+        tmp_root = Path(args.temp_dir) if args.temp_dir else Path(tempfile.mkdtemp(prefix="tudat_frames_"))
+        try:
+            for vid_file in iter_video_files(videos_root, args.video_exts):
+                rel = vid_file.relative_to(videos_root)
+                rel_dir = rel.with_suffix("")  # class/video
+                frame_dir = tmp_root / rel_dir
+                frame_dir.mkdir(parents=True, exist_ok=True)
+                # ffmpeg로 프레임 추출
+                cmd = [
+                    "ffmpeg",
+                    "-i",
+                    str(vid_file),
+                    "-qscale:v",
+                    "2",
+                    "-vsync",
+                    "0",
+                    str(frame_dir / "%05d.jpg"),
+                ]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                process_video(
+                    frame_dir=frame_dir,
+                    rel_dir=rel_dir,
+                    model=model,
+                    device=device,
+                    spatial=spatial,
+                    opt=opt,
+                    output_root=output_root,
+                    batch_size=args.batch_size,
+                    exts=exts,
+                )
+        finally:
+            if not args.temp_dir and tmp_root.exists():
+                shutil.rmtree(tmp_root, ignore_errors=True)
+    elif frames_root:
+        for vid_dir in iter_frame_dirs(frames_root, exts):
+            rel_dir = vid_dir.relative_to(frames_root)
+            process_video(
+                frame_dir=vid_dir,
+                rel_dir=rel_dir,
+                model=model,
+                device=device,
+                spatial=spatial,
+                opt=opt,
+                output_root=output_root,
+                batch_size=args.batch_size,
+                exts=exts,
+            )
+    else:
+        raise ValueError("frames_root 또는 videos_root 중 하나는 지정해야 합니다.")
 
 
 if __name__ == "__main__":

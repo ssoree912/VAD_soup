@@ -817,6 +817,11 @@ if __name__ == '__main__':
         else:
             logger.info('Final sparsity: {:.2f}% (pruning masks remained active).'.format(pruning_handler.sparsity * 100))
 
+    # Ensure best_auc checkpoint exists (even if metrics never improved)
+    if not os.path.exists(best_auc_path):
+        save_state_and_mask(model, best_auc_path, pruning_handler)
+        logger.info('Saved best_auc checkpoint at end of training (no metric improvement).')
+
     if args.use_wandb and wandb_run is not None:
         wandb_run.summary['best_val_roc_auc'] = best_AUC
         wandb_run.summary['best_val_pr_auc'] = best_PR
