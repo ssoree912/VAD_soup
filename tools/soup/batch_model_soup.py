@@ -265,9 +265,10 @@ def main():
     for seed, prune_seed in combinations:
         extra_flags = train_flags.copy()
         extra_flags.extend(['--seed', str(seed)])
-        if args.device:
+        if args.device and '--device' not in extra_flags:
             extra_flags.extend(['--device', args.device])
-        extra_flags.extend(['--gpu_id', str(args.gpu_id)])
+        if '--gpu_id' not in extra_flags:
+            extra_flags.extend(['--gpu_id', str(args.gpu_id)])
         if prune_seed is not None:
             extra_flags.extend(['--prune_random_seed', str(prune_seed)])
 
