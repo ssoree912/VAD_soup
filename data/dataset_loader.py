@@ -42,6 +42,8 @@ def CreateDataset(args, logger):
 
     dataset_test = Dataset()
     dataset_test.initialize(args, is_train=False)
+    if getattr(dataset_test, "logger_info", None):
+        logger.info(dataset_test.logger_info)
 
     dataset_train = Dataset()
     dataset_train.initialize(args, is_train=True, is_normal=False)
@@ -49,6 +51,8 @@ def CreateDataset(args, logger):
 
     dataset_train_eval = Dataset()
     dataset_train_eval.initialize(args, sample_type="uniform", is_train=False, eval_train=True)
+    if getattr(dataset_train_eval, "logger_info", None):
+        logger.info(dataset_train_eval.logger_info)
 
     test_loader = DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=0, pin_memory=True, drop_last=False)
     train_loader = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True, drop_last=True)

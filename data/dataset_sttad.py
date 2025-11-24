@@ -123,10 +123,12 @@ class Dataset_STTAD(BaseDataset):
     def _build_train_entries(self):
         video_names = []
         score_v_list = []
+        missing_feats = []
         for video_name, meta in self.video_meta.items():
             feat_path = os.path.join(self.feature_path, video_name + self.feature_name_end)
             if not os.path.isfile(feat_path):
-                raise FileNotFoundError(f"Feature file missing for {video_name}: {feat_path}")
+                missing_feats.append(video_name)
+                continue
 
             feature_ori = np.load(feat_path)
             if feature_ori.ndim == 3:
@@ -162,7 +164,10 @@ class Dataset_STTAD(BaseDataset):
         video_names = np.array(video_names)
         score_v_list = np.array(score_v_list)
         if len(video_names) == 0:
-            self.logger_info = "No STTAD training videos found."
+            skipped_msg = ""
+            if missing_feats:
+                skipped_msg = f" | skipped missing features: {len(missing_feats)}"
+            self.logger_info = f"No STTAD training videos found.{skipped_msg}"
             return
 
         abnormal_num_v = max(1, int(len(video_names) * 0.5))
@@ -181,16 +186,20 @@ class Dataset_STTAD(BaseDataset):
         for video_name in video_names[nor_idx_v_high_cofidence]:
             self.video_info_dict[video_name]["high_confidence_norvideo"] = 1
 
+        skipped_msg = f" | skipped missing features: {len(missing_feats)}" if missing_feats else ""
         self.logger_info = (
             f"Loaded {len(video_names)} STTAD training videos | "
             f"pseudo normal: {len(nor_idx_v)}, pseudo abnormal: {len(abn_idx_v)}"
+            f"{skipped_msg}"
         )
 
     def _build_eval_entries(self):
+        missing_feats = []
         for video_name, meta in self.video_meta.items():
             feat_path = os.path.join(self.feature_path, video_name + self.feature_name_end)
             if not os.path.isfile(feat_path):
-                raise FileNotFoundError(f"Feature file missing for {video_name}: {feat_path}")
+                missing_feats.append(video_name)
+                continue
 
             feature = np.load(feat_path)
             if feature.ndim == 3:
@@ -213,4 +222,5 @@ class Dataset_STTAD(BaseDataset):
             }
             self.video_info_dict[video_name] = info
 
-        self.logger_info = f"Loaded {len(self.video_info_dict)} STTAD eval videos."
+        skipped_msg = f" | skipped missing features: {len(missing_feats)}" if missing_feats else ""
+        self.logger_info = f"Loaded {len(self.video_info_dict)} STTAD eval videos.{skipped_msg}"
