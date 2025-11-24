@@ -46,7 +46,6 @@ VIDEO_REPO = resolve_video_repo(SCRIPT_DIR)
 from model import generate_model  # type: ignore  # noqa: E402
 from mean import get_mean  # type: ignore  # noqa: E402
 from spatial_transforms import Compose, Normalize, Scale, CenterCrop, ToTensor  # type: ignore  # noqa: E402
-from temporal_transforms import LoopPadding  # type: ignore  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,12 +110,11 @@ def load_model(model_path: Path, device: torch.device):
         [
             Scale(opt.sample_size),
             CenterCrop(opt.sample_size),
-            ToTensor(),
-            Normalize(mean, [1, 1, 1]),
-        ]
+        ToTensor(),
+        Normalize(mean, [1, 1, 1]),
+    ]
     )
-    temporal = LoopPadding(opt.sample_duration)
-    return model, opt, spatial, temporal
+    return model, opt, spatial
 
 
 def iter_frame_dirs(frames_root: Path, exts: Iterable[str]) -> Iterable[Path]:
@@ -135,10 +133,24 @@ def iter_frame_dirs(frames_root: Path, exts: Iterable[str]) -> Iterable[Path]:
                 yield vid_dir
 
 
-def load_clip(paths: List[Path], spatial, temporal) -> torch.Tensor:
-    imgs = [spatial(Image.open(p).convert("RGB")) for p in paths]
-    clip = torch.stack(imgs, dim=1)  # C, T, H, W
-    clip = temporal(clip)
+def load_clip(paths: List[Path], spatial, target_len: int) -> torch.Tensor | None:
+    # 개별 프레임 로드 실패 시 건너뛰고, 유효 프레임만 사용
+    imgs = []
+    for p in paths[:target_len]:
+        try:
+            imgs.append(spatial(Image.open(p).convert("RGB")))
+        except Exception:
+            # 깨진 프레임은 스킵
+            continue
+
+    if not imgs:
+        return None
+
+    # 길이가 모자라면 마지막 유효 프레임을 반복해서 pad
+    while len(imgs) < target_len:
+        imgs.append(imgs[-1])
+
+    clip = torch.stack(imgs[:target_len], dim=1)  # C, T, H, W
     return clip
 
 
@@ -148,7 +160,6 @@ def process_video(
     model,
     device: torch.device,
     spatial,
-    temporal,
     opt: OptStub,
     output_root: Path,
     batch_size: int,
@@ -166,7 +177,10 @@ def process_video(
         chunk = frames[idx : idx + step]
         if not chunk:
             continue
-        clips.append(load_clip(chunk, spatial, temporal))
+        clip = load_clip(chunk, spatial, step)
+        if clip is None:
+            continue
+        clips.append(clip)
 
     outputs: List[torch.Tensor] = []
     for start in range(0, len(clips), batch_size):
@@ -198,7 +212,7 @@ def main():
     print(f"[info] model_path={model_path}")
     print(f"[info] video repo at {VIDEO_REPO}")
 
-    model, opt, spatial, temporal = load_model(model_path, device)
+    model, opt, spatial = load_model(model_path, device)
     exts = [e.lower() for e in args.exts]
 
     for vid_dir in iter_frame_dirs(frames_root, exts):
@@ -209,7 +223,6 @@ def main():
             model=model,
             device=device,
             spatial=spatial,
-            temporal=temporal,
             opt=opt,
             output_root=output_root,
             batch_size=args.batch_size,
