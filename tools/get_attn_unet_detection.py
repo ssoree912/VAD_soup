@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from models.att_unet_predictor import AttUNetPredictor  # noqa: E402
+from models.att_unet import AttUNetPredictor  # noqa: E402
 from tools.ae_heatmap_to_detections import mask_to_boxes_and_scores  # noqa: E402
 
 

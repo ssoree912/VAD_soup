@@ -1,3 +1,4 @@
+# 여러 LANP 체크포인트를 일괄 평가하고 CSV로 비교
 import argparse
 import csv
 import logging

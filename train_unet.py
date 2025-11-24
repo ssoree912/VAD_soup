@@ -9,7 +9,7 @@ from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 
 from datasets import FramePredictionDataset
-from models.att_unet_predictor import AttUNetPredictor
+from models.att_unet import AttUNetPredictor
 
 #예측 이미지와 타겟 이미지의 엣지 정보가 얼마나 다른지 측정 
 def gradient_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
