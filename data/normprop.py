@@ -2,6 +2,17 @@ import numpy as np
 import scipy
 import math
 
+
+def _cg_compat(A, b, maxiter=10, tol=1e-6):
+    """
+    Compatibility wrapper for scipy.sparse.linalg.cg across versions.
+    Newer SciPy expects rtol/atol instead of tol.
+    """
+    try:
+        return scipy.sparse.linalg.cg(A, b, tol=tol, maxiter=maxiter)
+    except TypeError:
+        return scipy.sparse.linalg.cg(A, b, rtol=tol, atol=0.0, maxiter=maxiter)
+
 def bulid_affinity_matrix(feat, k, mask=None, is_ucf=False):
     T, dim = feat.shape
     max_len = min(k*2, T)
@@ -67,7 +78,7 @@ def normality_propagation(features, abn_num=7, is_ucf=False):
     # direct solve version
     Z = np.zeros(T)
     A = scipy.sparse.eye(Wn.shape[0]) - alpha * Wn
-    Z, _ = scipy.sparse.linalg.cg(A, Y_input, tol=1e-6, maxiter=10)
+    Z, _ = _cg_compat(A, Y_input, tol=1e-6, maxiter=10)
     Z[Z < 0] = 0
     Z[nor_idxs_pre] = np.max(Z)
 
