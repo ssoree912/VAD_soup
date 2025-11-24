@@ -55,7 +55,14 @@ def CreateDataset(args, logger):
         logger.info(dataset_train_eval.logger_info)
 
     test_loader = DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=0, pin_memory=True, drop_last=False)
-    train_loader = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True, drop_last=True)
+    train_loader = DataLoader(
+        dataset_train,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+        drop_last=False,
+    )
     train_eval_loader = DataLoader(dataset_train_eval, batch_size=1, shuffle=False, pin_memory=True, drop_last=False)
 
     logger.info("dataset [%s] was created" % (args.dataset))

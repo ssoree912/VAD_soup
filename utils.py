@@ -46,11 +46,16 @@ def log_param(logger, args):
         logger.info('{}\t{}'.format(k, params[k]))
 
 def cal_pr_auc(scores, labels):
+    # Guard against empty or single-class labels
+    if labels.size == 0 or len(np.unique(labels)) < 2:
+        return 0.0
     precision, recall, th = metrics.precision_recall_curve(labels, scores)
     pr_auc = metrics.auc(recall, precision)
     return pr_auc
 
 def cal_rec_auc(scores,labels):
+    if labels.size == 0 or len(np.unique(labels)) < 2:
+        return 0.0
     fpr, tpr, thresholds = metrics.roc_curve(labels,scores,pos_label=1)
     auc = metrics.auc(fpr,tpr)
     return auc
