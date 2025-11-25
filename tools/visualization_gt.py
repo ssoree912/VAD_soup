@@ -141,6 +141,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional mp4 path to save video montage.",
     )
+    p.add_argument(
+        "--target_class",
+        type=str,
+        default="car",
+        help="Class name to check/count in detections (requires classes in detections.npy).",
+    )
     return p.parse_args()
 
 
@@ -166,6 +172,32 @@ def main() -> None:
     frame_indices = det["frame_indices"]
     num_frames = int(det["num_frames"])
 
+    # Optional class information (for YOLO / YOLO-World detections)
+    classes_seq = det.get("classes", None)
+    class_names = det.get("class_names", None)
+
+    # Determine target class id for detection counting (e.g., "car")
+    target_class_id = None
+    if classes_seq is not None:
+        if class_names is not None:
+            # class_names may be list or numpy array
+            class_names_list = list(class_names)
+            if args.target_class in class_names_list:
+                target_class_id = class_names_list.index(args.target_class)
+        # Fallback: if class_names are not stored, assume index 2 corresponds to "car"
+        if target_class_id is None:
+            if args.target_class == "car":
+                target_class_id = 2
+                print(
+                    f"[warn] class_names not found or target class '{args.target_class}' missing; "
+                    "defaulting target_class_id=2 (assumed 'car')."
+                )
+            else:
+                print(
+                    f"[warn] class_names not found; cannot reliably map target_class='{args.target_class}'. "
+                    "Using all classes instead."
+                )
+
     # Optional video writer
     writer = None
     if args.video_output:
@@ -174,6 +206,10 @@ def main() -> None:
     # Pixel metrics accumulators
     pix_TP = pix_FP = pix_FN = 0
 
+    # Count frames where target_class is detected
+    frames_with_target = 0
+    target_frames = []
+    
     # For pixel-level ROC-AUC
     roc_labels: List[np.ndarray] = []
     roc_scores: List[np.ndarray] = []
@@ -216,7 +252,35 @@ def main() -> None:
             boxes = np.zeros((0, 4), dtype=np.float32)
         if scores is None:
             scores = np.zeros((0,), dtype=np.float32)
-        draw_boxes(overlay, np.asarray(boxes), np.asarray(scores), color=(0, 255, 255), thickness=2)
+
+        boxes_arr = np.asarray(boxes, dtype=np.float32)
+        scores_arr = np.asarray(scores, dtype=np.float32)
+
+        # If we have per-box classes and a valid target_class_id, filter to that class (e.g., "car")
+        if classes_seq is not None and target_class_id is not None and i < len(classes_seq):
+            cls_i = classes_seq[i]
+            cls_arr = np.asarray(cls_i, dtype=np.int64) if cls_i is not None else np.zeros((0,), dtype=np.int64)
+            if cls_arr.shape[0] != boxes_arr.shape[0]:
+                print(
+                    f"[warn] frame {i}: classes length {cls_arr.shape[0]} != boxes length {boxes_arr.shape[0]}; "
+                    "skipping class-based filtering for this frame."
+                )
+            else:
+                mask_target = cls_arr == target_class_id
+                boxes_arr = boxes_arr[mask_target]
+                # Align scores length with boxes if needed
+                if scores_arr.shape[0] == cls_arr.shape[0]:
+                    scores_arr = scores_arr[mask_target]
+                if mask_target.any():
+                    frames_with_target += 1
+                    target_frames.append(frame_idx) 
+        else:
+            # If no class info, treat all detections as generic
+            if boxes_arr.shape[0] > 0 and target_class_id is None and classes_seq is not None:
+                # We had classes but couldn't map target_class; do not count frames_with_target.
+                pass
+
+        draw_boxes(overlay, boxes_arr, scores_arr, color=(0, 255, 255), thickness=2)
 
         # Pixel-level metrics from err vs GT
         if err is not None and gt_mask is not None:
@@ -298,6 +362,14 @@ def main() -> None:
             print("[pixel-ROC] Only one class present in labels; ROC-AUC undefined.")
     else:
         print("[pixel-ROC] No pixel-level scores accumulated (maybe no GT or no err maps).")
+
+    # Summary of target-class detections for this video
+    if classes_seq is not None and target_class_id is not None:
+        print(
+            f"[dets] target class '{args.target_class}' detected in "
+            f"{frames_with_target} / {num_frames} frames for video {video}."
+        )
+        print(f"[dets] frames with '{args.target_class}': {target_frames}")
 
 
 if __name__ == "__main__":

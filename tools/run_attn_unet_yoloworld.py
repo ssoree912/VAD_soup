@@ -204,9 +204,21 @@ def filter_yolo_with_error(
     score_thr: float,
     obj_box_mode: str,
     orig_size: Tuple[int, int],
+    debug: bool = False,   # 🔹 디버그 플래그 추가
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """YOLO 박스를 에러맵 마스크와 겹침 비율/스코어 기준으로 필터링."""
-    if yolo_out.boxes.shape[0] == 0 or mask.sum() == 0:
+    if yolo_out.boxes.shape[0] == 0:
+        if debug:
+            print("[debug][yolo_filter] no YOLO boxes.")
+        return (
+            np.zeros((0, 4), dtype=np.float32),
+            np.zeros((0,), dtype=np.float32),
+            np.zeros((0,), dtype=np.int64),
+        )
+
+    if mask.sum() == 0:
+        if debug:
+            print("[debug][yolo_filter] error mask is empty (mask.sum() == 0).")
         return (
             np.zeros((0, 4), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
@@ -224,33 +236,58 @@ def filter_yolo_with_error(
     keep_scores: List[float] = []
     keep_classes: List[int] = []
 
-    for box, cls_id in zip(yolo_out.boxes, yolo_out.class_ids):
+    num_boxes = yolo_out.boxes.shape[0]
+
+    for i, (box, cls_id) in enumerate(zip(yolo_out.boxes, yolo_out.class_ids)):
+        # err 해상도로 스케일
         x1e = int(np.clip(round(box[0] * sx), 0, err_w - 1))
         y1e = int(np.clip(round(box[1] * sy), 0, err_h - 1))
         x2e = int(np.clip(round(box[2] * sx), 0, err_w))
         y2e = int(np.clip(round(box[3] * sy), 0, err_h))
         if x2e <= x1e or y2e <= y1e:
+            if debug:
+                print(f"[debug][yolo_filter] box #{i} cls={cls_id}: invalid scaled box, skip.")
             continue
 
         mask_roi = mask[y1e:y2e, x1e:x2e]
         if mask_roi.size == 0 or mask_roi.sum() == 0:
+            if debug:
+                print(f"[debug][yolo_filter] box #{i} cls={cls_id}: no overlap with error mask, skip.")
             continue
+
         ratio = float(mask_roi.mean())
-        if ratio < ratio_thr:
-            continue
 
         err_roi = err[y1e:y2e, x1e:x2e]
         err_score = float(err_roi.max() if score_agg == "max" else err_roi.mean())
+
+        if debug:
+            print(
+                f"[debug][yolo_filter] box #{i} cls={cls_id}: "
+                f"ratio={ratio:.4f} (thr={ratio_thr}), "
+                f"err_score={err_score:.4f} (thr={score_thr})"
+            )
+
+        if ratio < ratio_thr:
+            if debug:
+                print(f"  -> SKIP: ratio < ratio_thr")
+            continue
+
         if err_score < score_thr:
+            if debug:
+                print(f"  -> SKIP: err_score < score_thr")
             continue
 
         if obj_box_mode == "refined":
             refined = _mask_to_refined_boxes(mask_roi, (x1e, y1e), (inv_sx, inv_sy), orig_size)
             if refined.shape[0] == 0:
+                if debug:
+                    print(f"  -> SKIP: refined boxes empty")
                 continue
             keep_boxes.extend(refined.tolist())
             keep_scores.extend([err_score] * refined.shape[0])
             keep_classes.extend([int(cls_id)] * refined.shape[0])
+            if debug:
+                print(f"  -> KEEP: refined {refined.shape[0]} boxes")
         else:
             # full 박스는 원본 좌표를 그대로 사용 (clip 포함)
             x1o = float(np.clip(box[0], 0, orig_w))
@@ -260,6 +297,11 @@ def filter_yolo_with_error(
             keep_boxes.append([x1o, y1o, x2o, y2o])
             keep_scores.append(err_score)
             keep_classes.append(int(cls_id))
+            if debug:
+                print(f"  -> KEEP: full box")
+
+    if debug:
+        print(f"[debug][yolo_filter] kept {len(keep_boxes)} / {num_boxes} boxes.\n")
 
     if not keep_boxes:
         return (
@@ -273,7 +315,6 @@ def filter_yolo_with_error(
         np.asarray(keep_scores, dtype=np.float32),
         np.asarray(keep_classes, dtype=np.int64),
     )
-
 
 def ensure_device(device_arg: str | None) -> torch.device:
     if device_arg is not None:
@@ -414,6 +455,7 @@ def main() -> None:
                     score_thr=args.score_thr,
                     obj_box_mode=args.obj_box_mode,
                     orig_size=(orig_w, orig_h),
+                     debug=False,
                 )
             else:
                 boxes, det_scores, cls_ids = unet_only_boxes(
