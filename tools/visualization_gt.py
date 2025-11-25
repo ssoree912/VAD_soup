@@ -82,21 +82,33 @@ def draw_boxes(
     overlay: np.ndarray,
     boxes: np.ndarray,
     scores: Optional[np.ndarray] = None,
+    classes: Optional[np.ndarray] = None,
+    class_names: Optional[List[str]] = None,
     color=(0, 255, 255),
     thickness: int = 2,
 ):
     """
-    Draw detection boxes (xyxy) and optional scores.
+    Draw detection boxes (xyxy) with optional scores and class labels.
     """
     if boxes is None or len(boxes) == 0:
         return
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = box.astype(int)
         cv2.rectangle(overlay, (x1, y1), (x2, y2), color, thickness)
+
+        label_parts = []
+        if classes is not None and i < len(classes) and class_names is not None:
+            cls_id = int(classes[i])
+            if 0 <= cls_id < len(class_names):
+                label_parts.append(class_names[cls_id])
         if scores is not None and i < len(scores):
+            label_parts.append(f"{scores[i]:.2f}")
+
+        if label_parts:
+            label = " ".join(label_parts)
             cv2.putText(
                 overlay,
-                f"{scores[i]:.2f}",
+                label,
                 (x1, max(0, y1 - 5)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
@@ -144,8 +156,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--target_class",
         type=str,
-        default="car",
-        help="Class name to check/count in detections (requires classes in detections.npy).",
+        default="all",
+        help="Class name to filter detections. Use 'all' to show all detected classes (default: 'all').",
     )
     return p.parse_args()
 
@@ -176,27 +188,32 @@ def main() -> None:
     classes_seq = det.get("classes", None)
     class_names = det.get("class_names", None)
 
-    # Determine target class id for detection counting (e.g., "car")
+    # Determine target class id for detection counting
     target_class_id = None
-    if classes_seq is not None:
-        if class_names is not None:
-            # class_names may be list or numpy array
-            class_names_list = list(class_names)
+    use_class_filter = False
+    class_names_list = None
+
+    if classes_seq is not None and class_names is not None:
+        class_names_list = list(class_names)
+        print(f"[info] Loaded class names: {class_names_list}")
+
+        if args.target_class != "all":
             if args.target_class in class_names_list:
                 target_class_id = class_names_list.index(args.target_class)
-        # Fallback: if class_names are not stored, assume index 2 corresponds to "car"
-        if target_class_id is None:
-            if args.target_class == "car":
-                target_class_id = 2
-                print(
-                    f"[warn] class_names not found or target class '{args.target_class}' missing; "
-                    "defaulting target_class_id=2 (assumed 'car')."
-                )
+                use_class_filter = True
+                print(f"[info] Filtering to class '{args.target_class}' (id={target_class_id})")
             else:
                 print(
-                    f"[warn] class_names not found; cannot reliably map target_class='{args.target_class}'. "
-                    "Using all classes instead."
+                    f"[warn] target_class '{args.target_class}' not found in class_names. "
+                    f"Available classes: {class_names_list}. Using all classes instead."
                 )
+        else:
+            print(f"[info] Showing all detected classes (target_class='all')")
+
+    # Initialize per-class frame hit counter
+    class_frame_hits = {}
+    if class_names_list is not None:
+        class_frame_hits = {name: 0 for name in class_names_list}
 
     # Optional video writer
     writer = None
@@ -255,32 +272,49 @@ def main() -> None:
 
         boxes_arr = np.asarray(boxes, dtype=np.float32)
         scores_arr = np.asarray(scores, dtype=np.float32)
+        cls_arr = None
 
-        # If we have per-box classes and a valid target_class_id, filter to that class (e.g., "car")
-        if classes_seq is not None and target_class_id is not None and i < len(classes_seq):
+        # Handle class filtering and statistics
+        if classes_seq is not None and i < len(classes_seq):
             cls_i = classes_seq[i]
             cls_arr = np.asarray(cls_i, dtype=np.int64) if cls_i is not None else np.zeros((0,), dtype=np.int64)
+
             if cls_arr.shape[0] != boxes_arr.shape[0]:
                 print(
                     f"[warn] frame {i}: classes length {cls_arr.shape[0]} != boxes length {boxes_arr.shape[0]}; "
-                    "skipping class-based filtering for this frame."
+                    "skipping class-based processing for this frame."
                 )
+                cls_arr = None
             else:
-                mask_target = cls_arr == target_class_id
-                boxes_arr = boxes_arr[mask_target]
-                # Align scores length with boxes if needed
-                if scores_arr.shape[0] == cls_arr.shape[0]:
-                    scores_arr = scores_arr[mask_target]
-                if mask_target.any():
-                    frames_with_target += 1
-                    target_frames.append(frame_idx) 
-        else:
-            # If no class info, treat all detections as generic
-            if boxes_arr.shape[0] > 0 and target_class_id is None and classes_seq is not None:
-                # We had classes but couldn't map target_class; do not count frames_with_target.
-                pass
+                # Count which classes appear in this frame
+                if cls_arr.size > 0 and class_names_list is not None:
+                    present_classes = np.unique(cls_arr)
+                    for cid in present_classes:
+                        if 0 <= cid < len(class_names_list):
+                            class_frame_hits[class_names_list[cid]] += 1
 
-        draw_boxes(overlay, boxes_arr, scores_arr, color=(0, 255, 255), thickness=2)
+                # Apply class filter if specified
+                if use_class_filter and target_class_id is not None:
+                    mask_target = cls_arr == target_class_id
+                    boxes_arr = boxes_arr[mask_target]
+                    if scores_arr.shape[0] == cls_arr.shape[0]:
+                        scores_arr = scores_arr[mask_target]
+                    if cls_arr is not None:
+                        cls_arr = cls_arr[mask_target]
+
+                    if mask_target.any():
+                        frames_with_target += 1
+                        target_frames.append(frame_idx)
+
+        draw_boxes(
+            overlay,
+            boxes_arr,
+            scores_arr,
+            classes=cls_arr,
+            class_names=class_names_list,
+            color=(0, 255, 255),
+            thickness=2
+        )
 
         # Pixel-level metrics from err vs GT
         if err is not None and gt_mask is not None:
@@ -363,13 +397,25 @@ def main() -> None:
     else:
         print("[pixel-ROC] No pixel-level scores accumulated (maybe no GT or no err maps).")
 
-    # Summary of target-class detections for this video
-    if classes_seq is not None and target_class_id is not None:
+    # Summary of per-class detections
+    if class_names_list is not None:
+        print(f"\n[dets] Per-class frame counts for video '{video}':")
+        detected_any = False
+        for name, cnt in class_frame_hits.items():
+            if cnt > 0:
+                print(f"  {name}: {cnt} frames")
+                detected_any = True
+        if not detected_any:
+            print("  (no detections in any class)")
+
+    # Summary of target-class detections (if filtering was applied)
+    if use_class_filter and target_class_id is not None:
         print(
-            f"[dets] target class '{args.target_class}' detected in "
-            f"{frames_with_target} / {num_frames} frames for video {video}."
+            f"\n[dets] Filtered target class '{args.target_class}' detected in "
+            f"{frames_with_target} / {num_frames} frames."
         )
-        print(f"[dets] frames with '{args.target_class}': {target_frames}")
+        if target_frames:
+            print(f"[dets] Frames with '{args.target_class}': {target_frames}")
 
 
 if __name__ == "__main__":
