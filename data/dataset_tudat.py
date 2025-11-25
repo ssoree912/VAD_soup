@@ -91,26 +91,33 @@ class Dataset_TUDAT(BaseDataset):
         feature_files = self._scan_feature_files(self.train_list)
         for fpath in feature_files:
             cls = self._class_from_path(fpath)
-            if not self._is_normal_class(cls):
-                continue
             feature = np.load(fpath)
             if feature.ndim == 3:
                 feature = np.mean(feature, axis=1)
             T = feature.shape[0]
             sample_idxs = self.uniform_sampling(T)
             feature = feature[sample_idxs]
-            pseudo_label = np.zeros(len(sample_idxs))
+            if self._is_normal_class(cls):
+                pseudo_label = np.zeros(len(sample_idxs))
+                high_conf = 1
+            else:
+                pseudo_label = np.ones(len(sample_idxs))
+                high_conf = 0
             reweight = np.ones_like(pseudo_label)
             video_key = self._video_name_from_path(fpath)
-            info = {
+            self.video_info_dict[video_key] = {
                 "feature": feature,
                 "pseudo_label": pseudo_label,
                 "reweight": reweight,
-                "high_confidence_norvideo": 1,
+                "high_confidence_norvideo": high_conf,
             }
-            self.video_info_dict[video_key] = info
 
-        self.logger_info = f"Loaded {len(self.video_info_dict)} TU-DAT training videos (normal only)."
+        num_nor = sum(1 for k in self.video_info_dict if self._is_normal_class(k.split('/')[0]))
+        num_abn = len(self.video_info_dict) - num_nor
+        self.logger_info = (
+            f"Loaded {len(self.video_info_dict)} TU-DAT training videos "
+            f"(normal {num_nor}, abnormal {num_abn})."
+        )
 
     def _build_eval_entries(self):
         feature_files = self._scan_feature_files(self.test_list)

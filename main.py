@@ -147,12 +147,30 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_
         total_samples = 0
         total_batches = 0
 
-        for features, pseudo_labels, reweight, _, _ in dataloader:
+        dbg_scores = []
+        dbg_labels = []
+
+        for batch_idx, (features, pseudo_labels, reweight, _, _) in enumerate(dataloader):
             bs, nc, t, dim = features.shape
             features = features.type(torch.float).to(device)
             pseudo_labels = pseudo_labels.type(torch.float).to(device)
             reweight = reweight.type(torch.float).to(device)
+            if getattr(args, "ignore_reweight", False):
+                reweight = torch.ones_like(reweight)
             scores = model(features)
+            if getattr(args, "debug_scores", False) and batch_idx == 0 and epoch in (0, 1):
+                try:
+                    uniq_lbl, cnt_lbl = torch.unique(pseudo_labels, return_counts=True)
+                    print("[train-debug] pseudo_labels unique:", uniq_lbl.detach().cpu().numpy(), cnt_lbl.detach().cpu().numpy())
+                    print("[train-debug] reweight min/max/mean:",
+                          reweight.min().item(), reweight.max().item(), reweight.mean().item())
+                    print("[train-debug] scores min/max/mean:",
+                          scores.min().item(), scores.max().item(), scores.mean().item())
+                except Exception:
+                    pass
+            if getattr(args, "debug_scores", False) and epoch == 0:
+                dbg_scores.append(scores.detach().cpu().view(-1))
+                dbg_labels.append(pseudo_labels.detach().cpu().view(-1))
             loss_cls = criterion(scores, pseudo_labels, reweight)
 
             optimizer_model.zero_grad()
@@ -171,6 +189,13 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_
             total_batches += 1
 
         avg_loss = total_loss / max(total_batches, 1)
+        if getattr(args, "debug_scores", False) and dbg_scores:
+            all_s = torch.cat(dbg_scores)
+            all_l = torch.cat(dbg_labels)
+            print("[train-debug-epoch0] scores min/max/mean:",
+                  all_s.min().item(), all_s.max().item(), all_s.mean().item())
+            uniq, cnt = torch.unique(all_l, return_counts=True)
+            print("[train-debug-epoch0] labels unique:", uniq.numpy(), cnt.numpy())
 
         logger.info('Epoch: [{:.0f}/{:.0f}], '
                     'sample_num: {}, '
@@ -179,7 +204,7 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_
         return avg_loss
 
 def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional[Dict[str, np.ndarray]] = None,
-         fusion_method: str = "none", fusion_alpha: float = 0.5):
+         fusion_method: str = "none", fusion_alpha: float = 0.5, debug_scores: bool = False):
     if is_train_sample:
         with torch.no_grad():
             model.eval()
@@ -187,7 +212,7 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
             for features, label_frames, video_name in test_loader:
                 features = features.type(torch.float).to(device)
                 label_frames = label_frames.type(torch.float).to(device)
-                outputs = model(features)
+                outputs = torch.sigmoid(model(features))
                 scores = outputs.squeeze().cpu().numpy()
         
                 losses_dict[video_name[0]] = scores
@@ -200,10 +225,19 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
             model.eval()
             scores_dist = {}
             labels_dist = {}
+            printed_debug = False
             for features, label_frames, video_name in test_loader:
                 features = features.type(torch.float).to(device)
                 label_frames = label_frames.type(torch.float).to(device)
-                outputs = model(features)
+                outputs = torch.sigmoid(model(features))
+
+                if debug_scores and not printed_debug:
+                    try:
+                        print("[debug] outputs head:", outputs.view(-1)[:8].detach().cpu().numpy())
+                        print("[debug] labels head:", label_frames.view(-1)[:8].detach().cpu().numpy())
+                    except Exception:
+                        pass
+                    printed_debug = True
 
                 scores = outputs.squeeze().cpu().numpy()
                 video_key = video_name[0]
@@ -225,6 +259,14 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
 
         total_score_frames = np.array(total_scores)
         total_label_frames = np.array(total_labels)
+
+        if debug_scores:
+            try:
+                print("[debug] frame scores min/max/mean:", total_score_frames.min(), total_score_frames.max(), total_score_frames.mean())
+                uniq, cnt = np.unique(total_label_frames, return_counts=True)
+                print("[debug] frame labels unique:", uniq, cnt)
+            except Exception:
+                pass
 
         prauc_frames, rocauc_frames = calc_metrics(total_score_frames, total_label_frames)
     
@@ -566,6 +608,10 @@ def parse_args():
                         help='Skip training and only run evaluation/export once after loading data.')
     parser.add_argument('--metrics_json_path', type=str, default=None,
                         help='Optional JSON file to append ROC/PR metrics for each evaluation step.')
+    parser.add_argument('--debug_scores', action='store_true',
+                        help='Print sample scores/labels during evaluation (first batch only).')
+    parser.add_argument('--ignore_reweight', action='store_true',
+                        help='Ignore reweight (set all to 1) during training for debugging.')
 
     if config_args.config_file:
         with open(config_args.config_file, 'r') as f:
@@ -694,6 +740,7 @@ if __name__ == '__main__':
             roi_scores=fusion_scores,
             fusion_method=args.roi_score_fusion,
             fusion_alpha=args.roi_score_alpha,
+            debug_scores=getattr(args, "debug_scores", False),
         )
         logger.info('Eval-only: pr@ {:.2f}%, auc@ {:.2f}%'.format(test_prauc, test_rocauc))
         if args.save_frame_scores_path or args.save_snippet_scores_path:
@@ -758,6 +805,7 @@ if __name__ == '__main__':
                 roi_scores=fusion_scores,
                 fusion_method=args.roi_score_fusion,
                 fusion_alpha=args.roi_score_alpha,
+                debug_scores=getattr(args, "debug_scores", False),
             )
             if args.save_frame_scores_path or args.save_snippet_scores_path:
                 export_eval_artifacts(

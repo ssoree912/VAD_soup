@@ -41,8 +41,9 @@ dataset: 'tudat'
 feature_path: './data/TU-DAT/features'
 frames_root: './data/TU-DAT/frames'
 # 클래스 매핑 (필요에 따라 수정)
-normal_classes: ['Negative_Videos', 'challenging-environment']
-abnormal_classes: ['Positive_Vidoes', 'Rash-Driving']
+# 정상: Negative_Videos만, 나머지(challenging-environment 포함)는 이상
+normal_classes: ['Negative_Videos']
+abnormal_classes: ['Positive_Vidoes', 'Rash-Driving', 'challenging-environment']
 
 # 분할 파일 (없으면 전체 스캔)
 training_split: './data/TU-DAT/train_split.txt'

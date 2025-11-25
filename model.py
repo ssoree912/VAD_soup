@@ -13,7 +13,7 @@ class AD_Model(nn.Module):
         )
 
         self.f_cls = nn.Sequential(
-            nn.Linear(self.feature_embed, 512), nn.ReLU(), nn.Dropout(dropout_rate), nn.Linear(512, 1), nn.Sigmoid()
+            nn.Linear(self.feature_embed, 512), nn.ReLU(), nn.Dropout(dropout_rate), nn.Linear(512, 1)
         )
         self.dropout = nn.Dropout(p=dropout_rate)
 

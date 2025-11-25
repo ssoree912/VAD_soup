@@ -1,6 +1,8 @@
 import argparse
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Iterable, List
 
 import torch
 import torch.nn.functional as F
@@ -33,14 +35,18 @@ def loss_fn(pred: torch.Tensor, target: torch.Tensor, alpha_rec: float, alpha_gr
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Attention U-Net frame predictor (t frames -> next frame).")
-    parser.add_argument("--frames_root", type=str, default="data/shanghaitech/training/frames",
-                        help="Root with training videos (normal only).")
+    parser.add_argument("--frames_root", type=str, default=None,
+                        help="Root with training frames (video folders with images).")
+    parser.add_argument("--videos_root", type=str, default=None,
+                        help="If frames are not pre-extracted, point to video root to auto-extract.")
     parser.add_argument("--t", type=int, default=4, help="Number of context frames.")
     parser.add_argument("--stride", type=int, default=1, help="Sliding-window stride between samples.")
     parser.add_argument("--image_size", type=int, default=256)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_frames_root", type=str, default=None,
                         help="Optional validation frames root for best-epoch selection.")
+    parser.add_argument("--val_videos_root", type=str, default=None,
+                        help="If val frames are absent, point to validation video root.")
     parser.add_argument("--val_batch_size", type=int, default=None,
                         help="Validation batch size (default: same as train).")
     parser.add_argument("--num_workers", type=int, default=4)
@@ -53,7 +59,57 @@ def parse_args() -> argparse.Namespace:
                         help="Directory to save checkpoints.")
     parser.add_argument("--resume", type=str, default=None,
                         help="Optional path to a checkpoint (.pth) to resume training from.")
+    parser.add_argument("--video_exts", nargs="+", default=[".mp4", ".mov", ".avi"],
+                        help="Video extensions to scan when extracting frames.")
+    parser.add_argument("--temp_dir", type=str, default=None,
+                        help="Optional temp dir for frame extraction (default: create under system temp).")
     return parser.parse_args()
+
+
+def iter_video_files(root: Path, exts: Iterable[str]) -> Iterable[Path]:
+    exts_norm = {e.lower() for e in exts}
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in exts_norm:
+            yield path
+
+
+def ensure_frames_root(frames_root: Optional[Path], videos_root: Optional[Path], exts: List[str],
+                       temp_dir: Optional[Path]) -> Path:
+    """
+    Ensure frames_root exists and contains frames. If not, extract from videos_root using ffmpeg.
+    """
+    if frames_root is not None:
+        frames_root = frames_root.resolve()
+    if videos_root is not None:
+        videos_root = videos_root.resolve()
+
+    if frames_root and frames_root.exists():
+        # Check if frames already present
+        has_frames = any(frames_root.rglob("*.jpg")) or any(frames_root.rglob("*.png"))
+        if has_frames:
+            return frames_root
+
+    if videos_root is None:
+        raise ValueError("frames_root is empty/missing and videos_root was not provided for extraction.")
+
+    target_root = frames_root if frames_root is not None else (temp_dir or Path(tempfile.mkdtemp(prefix="unet_frames_")))
+    target_root = target_root.resolve()
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    for vid_file in iter_video_files(videos_root, exts):
+        rel = vid_file.relative_to(videos_root).with_suffix("")
+        out_dir = target_root / rel
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "ffmpeg",
+            "-i", str(vid_file),
+            "-qscale:v", "2",
+            "-vsync", "0",
+            str(out_dir / "%05d.jpg"),
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    return target_root
 
 
 def main() -> None:
@@ -67,14 +123,21 @@ def main() -> None:
     use_amp = device.type == "cuda"
     scaler = GradScaler(enabled=use_amp)
 
+    train_frames_root = ensure_frames_root(
+        Path(args.frames_root) if args.frames_root else None,
+        Path(args.videos_root) if args.videos_root else None,
+        args.video_exts,
+        Path(args.temp_dir) if args.temp_dir else None,
+    )
+
     dataset = FramePredictionDataset(
-        args.frames_root,
+        str(train_frames_root),
         t=args.t,
         image_size=args.image_size,
         stride=args.stride,
     )
     if len(dataset) == 0:
-        raise ValueError(f"No training samples found under {args.frames_root} with t={args.t}")
+        raise ValueError(f"No training samples found under {train_frames_root} with t={args.t}")
 
     train_loader = DataLoader(
         dataset,
@@ -87,15 +150,21 @@ def main() -> None:
     )
 
     val_loader: Optional[DataLoader] = None
-    if args.val_frames_root:
+    if args.val_frames_root or args.val_videos_root:
+        val_frames_root = ensure_frames_root(
+            Path(args.val_frames_root) if args.val_frames_root else None,
+            Path(args.val_videos_root) if args.val_videos_root else None,
+            args.video_exts,
+            Path(args.temp_dir) if args.temp_dir else None,
+        )
         val_dataset = FramePredictionDataset(
-            args.val_frames_root,
+            str(val_frames_root),
             t=args.t,
             image_size=args.image_size,
             stride=args.stride,
         )
         if len(val_dataset) == 0:
-            raise ValueError(f"No validation samples found under {args.val_frames_root} with t={args.t}")
+            raise ValueError(f"No validation samples found under {val_frames_root} with t={args.t}")
         val_loader = DataLoader(
             val_dataset,
             batch_size=args.val_batch_size or args.batch_size,
