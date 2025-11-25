@@ -67,7 +67,11 @@ def normality_propagation(features, abn_num=7, is_ucf=False):
     # direct solve version
     Z = np.zeros(T)
     A = scipy.sparse.eye(Wn.shape[0]) - alpha * Wn
-    Z, _ = scipy.sparse.linalg.cg(A, Y_input, tol=1e-6, maxiter=10)
+    try:
+        # SciPy 1.14+ uses rtol/atol; tol is deprecated/removed
+        Z, _ = scipy.sparse.linalg.cg(A, Y_input, rtol=1e-6, maxiter=10)
+    except TypeError:
+        Z, _ = scipy.sparse.linalg.cg(A, Y_input, tol=1e-6, maxiter=10)
     Z[Z < 0] = 0
     Z[nor_idxs_pre] = np.max(Z)
 

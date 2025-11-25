@@ -94,6 +94,56 @@ def snippet_to_frame_scores(
     return frame_map
 
 
+def log_test_label_stats(total_label_frames: np.ndarray, logger) -> None:
+    if total_label_frames.size == 0:
+        logger.info("[debug] TEST labels: empty")
+        return
+    pos = float(total_label_frames.sum())
+    num = int(total_label_frames.size)
+    logger.info(
+        "[debug] TEST labels: pos_ratio={:.6f}, num_pos={}, num_all={}".format(
+            pos / max(num, 1), int(pos), num
+        )
+    )
+
+
+def log_train_pseudo_stats(train_loader, logger) -> None:
+    pos = 0.0
+    total = 0.0
+    for _, pseudo_labels, _, _, _ in train_loader:
+        if hasattr(pseudo_labels, "detach"):
+            arr = pseudo_labels.detach().cpu().numpy()
+        else:
+            arr = np.asarray(pseudo_labels)
+        pos += float(arr.sum())
+        total += float(arr.size)
+    if total > 0:
+        logger.info(
+            "[debug] TRAIN pseudo_labels: pos_ratio={:.6f}, num_pos={}, num_all={}".format(
+                pos / total, int(pos), int(total)
+            )
+        )
+    else:
+        logger.info("[debug] TRAIN pseudo_labels: empty")
+
+
+def log_reweight_stats(dataset, logger) -> None:
+    all_rw: List[np.ndarray] = []
+    for info in dataset.video_info_dict.values():
+        rw = np.asarray(info.get("reweight"))
+        if rw.size > 0:
+            all_rw.append(rw.reshape(-1))
+    if not all_rw:
+        logger.info("[debug] reweight stats: empty")
+        return
+    merged = np.concatenate(all_rw, axis=0)
+    logger.info(
+        "[debug] reweight stats: mean={:.4f}, std={:.4f}, min={:.4f}, max={:.4f}".format(
+            merged.mean(), merged.std(), merged.min(), merged.max()
+        )
+    )
+
+
 def export_eval_artifacts(
     snippet_scores: Dict[str, np.ndarray],
     labels_dist: Dict[str, np.ndarray],
@@ -226,6 +276,7 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
         total_score_frames = np.array(total_scores)
         total_label_frames = np.array(total_labels)
 
+        log_test_label_stats(total_label_frames, logger)
         prauc_frames, rocauc_frames = calc_metrics(total_score_frames, total_label_frames)
     
         logger.info('Testing: pr@ {:.2f}%, '
@@ -672,6 +723,8 @@ if __name__ == '__main__':
     memory = Memory_module(train_loader.dataset, device)
     updated_tag = memory.update_dataloader()
     logger.info(memory.logger_info)
+    if updated_tag:
+        log_reweight_stats(train_loader.dataset, logger)
     if args.save_memory_path:
         save_dict_payload(args.save_memory_path, {"normal_memory": memory.normal_memory.detach().cpu().numpy()})
 
@@ -684,6 +737,9 @@ if __name__ == '__main__':
         update_reweight(dataset_train, blended_scores)
         logger.info('Applied ROI/global score blending to training reweights (lambda={:.2f}).'.format(
             args.roi_reweight_lambda))
+        log_reweight_stats(train_loader.dataset, logger)
+
+    log_train_pseudo_stats(train_loader, logger)
 
     if args.eval_only:
         fusion_scores = roi_snippet_scores if (roi_snippet_scores is not None and args.roi_score_fusion != 'none') else None
