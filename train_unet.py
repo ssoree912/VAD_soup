@@ -120,7 +120,7 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    best_val = float("inf")
+    best_metric = float("inf")  # val_loss if val exists, else train_loss
     best_epoch = -1
     start_epoch = 0
 
@@ -187,24 +187,45 @@ def main() -> None:
                     val_samples += bs
             val_loss = val_total / max(1, val_samples)
             log_msg += f" | val_loss={val_loss:.5f}"
-            if val_loss < best_val:
-                best_val = val_loss
-                best_epoch = epoch + 1
-                torch.save(
-                    {
-                        "epoch": epoch + 1,
-                        "state_dict": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scaler": scaler.state_dict() if use_amp else None,
-                        "args": vars(args),
-                        "val_loss": val_loss,
-                        "best_val": best_val,
-                        "best_epoch": best_epoch,
-                    },
-                    out_dir / "att_unet_best.pth",
-                )
+            metric = val_loss
+        else:
+            metric = avg_loss
+
+        if metric < best_metric:
+            best_metric = metric
+            best_epoch = epoch + 1
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "state_dict": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scaler": scaler.state_dict() if use_amp else None,
+                    "args": vars(args),
+                    "metric": metric,
+                    "best_metric": best_metric,
+                    "best_epoch": best_epoch,
+                    "val_loss": val_loss,
+                    "train_loss": avg_loss,
+                },
+                out_dir / "att_unet_best.pth",
+            )
 
         print(log_msg)
+
+        torch.save(
+            {
+                "epoch": epoch + 1,
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scaler": scaler.state_dict() if use_amp else None,
+                "args": vars(args),
+                "val_loss": val_loss,
+                "train_loss": avg_loss,
+                "best_metric": best_metric,
+                "best_epoch": best_epoch,
+            },
+            out_dir / "att_unet_last.pth",
+        )
 
         ckpt_path = out_dir / f"att_unet_epoch{epoch + 1}.pth"
         torch.save(
