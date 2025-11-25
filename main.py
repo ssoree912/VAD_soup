@@ -189,7 +189,7 @@ def save_state_and_mask(model, path, pruning_handler=None):
         if os.path.exists(mask_path):
             os.remove(mask_path)
 
-def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_handler=None):
+def train(dataloader, model, optimizer_model, criterion, epoch, device, apply_reweight=True, pruning_handler=None):
     with torch.set_grad_enabled(True):
         model.train()
 
@@ -201,7 +201,10 @@ def train(dataloader, model, optimizer_model, criterion, epoch, device, pruning_
             bs, nc, t, dim = features.shape
             features = features.type(torch.float).to(device)
             pseudo_labels = pseudo_labels.type(torch.float).to(device)
-            reweight = reweight.type(torch.float).to(device)
+            if apply_reweight:
+                reweight = reweight.type(torch.float).to(device)
+            else:
+                reweight = torch.ones_like(pseudo_labels, dtype=torch.float, device=device)
             scores = model(features)
             loss_cls = criterion(scores, pseudo_labels, reweight)
 
@@ -613,6 +616,8 @@ def parse_args():
                         help='Optional path to save frame-level anomaly scores during evaluation.')
     parser.add_argument('--save_memory_path', type=str, default=None,
                         help='Optional path to export the normal memory vectors after initialization.')
+    parser.add_argument('--disable_reweight', action='store_true',
+                        help='Ignore per-sample reweights and use all-ones weights (useful for IPAD sanity checks).')
     parser.add_argument('--eval_only', action='store_true',
                         help='Skip training and only run evaluation/export once after loading data.')
     parser.add_argument('--metrics_json_path', type=str, default=None,
@@ -740,6 +745,8 @@ if __name__ == '__main__':
         log_reweight_stats(train_loader.dataset, logger)
 
     log_train_pseudo_stats(train_loader, logger)
+    if getattr(args, "disable_reweight", False):
+        logger.info("Reweight disabled: training will use uniform weights (ones).")
 
     if args.eval_only:
         fusion_scores = roi_snippet_scores if (roi_snippet_scores is not None and args.roi_score_fusion != 'none') else None
@@ -792,7 +799,16 @@ if __name__ == '__main__':
                 wandb_run.summary['pruning/release_epoch'] = epoch
             logger.info('Early unprune applied before epoch {}.'.format(epoch))
 
-        train_loss = train(train_loader, model, optimizer_model, loss_criterion, epoch, device, pruning_handler=pruning_handler)
+        train_loss = train(
+            train_loader,
+            model,
+            optimizer_model,
+            loss_criterion,
+            epoch,
+            device,
+            apply_reweight=(not getattr(args, "disable_reweight", False)),
+            pruning_handler=pruning_handler,
+        )
 
         if args.use_wandb and wandb_run is not None:
             weight_l1, weight_l2, weight_abs_max = compute_weight_statistics(model)

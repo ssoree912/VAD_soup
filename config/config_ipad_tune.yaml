@@ -44,6 +44,7 @@ training_split: './data/IPAD/lanp_train_split.txt'
 testing_split: './data/IPAD/test_split.txt'
 np_scores_path:
 feature_name_end: '_res.npy'
+disable_reweight: false
 
 th_auc: 0.75
 th_pr: 0.5
