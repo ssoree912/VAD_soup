@@ -22,3 +22,5 @@ test_results/
 data/ucf-crime/UCF_Crimes/
 data/ucf-crime/features/
 vis/overlays/
+data/TU-DAT/
+data/__MACOSX/
