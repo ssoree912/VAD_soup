@@ -35,6 +35,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Attention U-Net frame predictor (t frames -> next frame).")
     parser.add_argument("--frames_root", type=str, default="data/shanghaitech/training/frames",
                         help="Root with training videos (normal only).")
+    parser.add_argument("--recursive", action="store_true",
+                        help="Recursively scan frame folders under frames_root (e.g., data/IPAD/*/training/frames/*).")
+    parser.add_argument("--filter_training_only", action="store_true",
+                        help="When --recursive, keep only paths matching */training/frames/* (exclude testing).")
     parser.add_argument("--t", type=int, default=4, help="Number of context frames.")
     parser.add_argument("--stride", type=int, default=1, help="Sliding-window stride between samples.")
     parser.add_argument("--image_size", type=int, default=256)
@@ -72,6 +76,8 @@ def main() -> None:
         t=args.t,
         image_size=args.image_size,
         stride=args.stride,
+        recursive=args.recursive,
+        filter_training_only=args.filter_training_only,
     )
     if len(dataset) == 0:
         raise ValueError(f"No training samples found under {args.frames_root} with t={args.t}")
@@ -93,6 +99,8 @@ def main() -> None:
             t=args.t,
             image_size=args.image_size,
             stride=args.stride,
+            recursive=args.recursive,
+            filter_training_only=args.filter_training_only,
         )
         if len(val_dataset) == 0:
             raise ValueError(f"No validation samples found under {args.val_frames_root} with t={args.t}")

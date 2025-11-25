@@ -20,6 +20,8 @@ class FramePredictionDataset(Dataset):
         image_size: int = 256,
         stride: int = 1,
         return_metadata: bool = False,
+        recursive: bool = False,
+        filter_training_only: bool = False,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.t = t
@@ -28,12 +30,27 @@ class FramePredictionDataset(Dataset):
         self.videos: List[Tuple[str, List[Path]]] = []
         self.samples: List[Tuple[int, int]] = []  # (video_idx, start_frame_idx)
 
-        video_dirs = sorted([p for p in self.root_dir.iterdir() if p.is_dir()])
-        for vid_idx, vdir in enumerate(video_dirs):
+        if not recursive:
+            video_dirs = sorted([p for p in self.root_dir.iterdir() if p.is_dir()])
+        else:
+            # Gather all leaf dirs; optionally keep only .../training/frames/<vid>
+            video_dirs = []
+            for d in self.root_dir.rglob("*"):
+                if not d.is_dir():
+                    continue
+                if filter_training_only:
+                    parts = d.parts
+                    if len(parts) < 3 or parts[-2] != "frames" or parts[-3] != "training":
+                        continue
+                video_dirs.append(d)
+
+        for vid_idx, vdir in enumerate(sorted(video_dirs)):
             frames = sorted(list(vdir.glob("*.jpg")) + list(vdir.glob("*.png")))
             if len(frames) <= t:
                 continue
-            self.videos.append((vdir.name, frames))
+            # Use relative path as ID in recursive mode to avoid collisions.
+            vid_id = str(vdir.relative_to(self.root_dir)) if recursive else vdir.name
+            self.videos.append((vid_id, frames))
             for start in range(0, len(frames) - t, stride):
                 self.samples.append((vid_idx, start))
 
