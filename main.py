@@ -260,6 +260,9 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
         total_score_frames = np.array(total_scores)
         total_label_frames = np.array(total_labels)
 
+        if getattr(args, "flip_test_labels", False):
+            total_label_frames = 1 - total_label_frames
+
         if debug_scores:
             try:
                 print("[debug] frame scores min/max/mean:", total_score_frames.min(), total_score_frames.max(), total_score_frames.mean())
@@ -612,6 +615,12 @@ def parse_args():
                         help='Print sample scores/labels during evaluation (first batch only).')
     parser.add_argument('--ignore_reweight', action='store_true',
                         help='Ignore reweight (set all to 1) during training for debugging.')
+    parser.add_argument('--disable_pos_weight', action='store_true',
+                        help='Disable pos_weight in BCEWithLogitsLoss (for debugging imbalance effects).')
+    parser.add_argument('--pos_weight', type=float, default=None,
+                        help='Fixed pos_weight value for BCEWithLogitsLoss (overrides dynamic).')
+    parser.add_argument('--flip_test_labels', action='store_true',
+                        help='Flip test labels (0->1, 1->0) for debugging label direction.')
 
     if config_args.config_file:
         with open(config_args.config_file, 'r') as f:
@@ -636,7 +645,10 @@ if __name__ == '__main__':
 
     '''build model'''
     model = prepare_model(args, device)
-    loss_criterion = Loss_bce()
+    loss_criterion = Loss_bce(
+        use_pos_weight=not getattr(args, "disable_pos_weight", False),
+        fixed_pos_weight=getattr(args, "pos_weight", None),
+    )
 
     total_params = sum(p.numel() for p in model.parameters())
     wandb_run = None
