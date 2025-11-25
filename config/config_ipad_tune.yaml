@@ -1,10 +1,11 @@
 device: 'cuda'
 gpu_id: 0
 
-lr: 0.0003
+# disable_reweight: false
+lr: 0.0001
 momentum: 0.9
 weight_decay: 0.0005
-dropout_rate: 0.7
+dropout_rate: 0.3
 seed: 1
 
 use_wandb: false
@@ -21,7 +22,7 @@ use_early_unprune: false
 unprune_ratio: 0.3
 prune_random_seed:
 
-epochs: 60
+epochs: 200
 batch_size: 30
 test_freq: 1
 segment_len: 16
@@ -38,7 +39,7 @@ ckpt_path: './ckpts'
 pretrained_path:
 
 dataset: 'ipad'
-feature_path: './features/ipad'
+feature_path: './data/IPAD/features'
 anno_root: './data/IPAD'
 training_split: './data/IPAD/lanp_train_split.txt'
 testing_split: './data/IPAD/test_split.txt'

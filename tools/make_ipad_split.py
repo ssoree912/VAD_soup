@@ -104,6 +104,10 @@ def main() -> None:
         test_frames_root = sc_root / "testing" / "frames"
         label_root = sc_root / "test_label"
 
+        # Skip non-scenario folders (e.g., features/)
+        if not train_frames_root.is_dir() or not test_frames_root.is_dir():
+            continue
+
         # Normal training videos for both models.
         train_vids = sorted(
             d for d in os.listdir(train_frames_root) if (train_frames_root / d).is_dir()
