@@ -14,6 +14,7 @@ class Dataset_SOS(BaseDataset):
     def initialize(self, args, sample_type="uniform", is_train=True, is_normal=True, eval_train=False):
         self.dataset_name = args.dataset
         self.seg_len = args.segment_len
+        self.process_len = args.process_len
         self.sample_type = sample_type
         self.is_train = is_train
         self.is_normal = is_normal

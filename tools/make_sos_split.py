@@ -1,18 +1,16 @@
 #!/usr/bin/env python 3
 """
-Build split files for street_obstacle_sequences (SOS) with the following rules:
+Street Obstacle Sequences (SOS) split builder.
 
-- data/street_obstacle_sequences/train : 정상 주행 프레임 (한 영상으로 취급)
-- data/street_obstacle_sequences/test/sequence_xxx : 장애물 포함 시퀀스 (모두 이상 라벨)
-- LANP train: train(정상) + test 시퀀스 중 앞의 N개를 이상으로 포함 (기본 N=3)
-- UNet train: train(정상)만 사용
-- Test: 나머지 test 시퀀스들 (이상)
+정책:
+- train/          : 정상 주행 (단일 비디오로 취급, label=0)
+- test/sequence_* : 장애물 포함 (label=1)
+- LANP 학습: train(정상) + test 시퀀스 중 앞의 N개를 이상으로 포함 (기본 N=3)
+- UNet 학습: train(정상)만 사용
+- Test: 나머지 test 시퀀스 모두 이상으로 평가
 
-Each line format:
-    <relative_video_path>,<label>,<frame_len>
-Examples:
-    train,0,12345
-    test/sequence_003,1,510
+라인 포맷: <relative_video_path>,<label>,<frame_len>
+예) train,0,12345 / test/sequence_003,1,510
 """
 
 from __future__ import annotations
@@ -25,10 +23,10 @@ from typing import Dict, List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate splits for street_obstacle_sequences (train=normal, test=anomaly).")
+    p = argparse.ArgumentParser(description="Generate SOS splits (train normal, test anomaly).")
     p.add_argument("--sos-root", type=Path, default=Path("data/street_obstacle_sequences"), help="Dataset root.")
-    p.add_argument("--out-dir", type=Path, default=None, help="Where to write split files (default: sos-root).")
-    p.add_argument("--lanp_anom_from_test", type=int, default=3, help="Number of test sequences to include as anomalies in LANP train.")
+    p.add_argument("--out-dir", type=Path, default=None, help="Output dir for split txt (default: sos-root).")
+    p.add_argument("--lanp_anom_from_test", type=int, default=3, help="How many test sequences to include as anomalies in LANP train.")
     p.add_argument("--seed", type=int, default=0, help="Random seed.")
     return p.parse_args()
 

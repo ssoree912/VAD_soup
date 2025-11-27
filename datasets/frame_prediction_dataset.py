@@ -46,7 +46,7 @@ class FramePredictionDataset(Dataset):
                         continue
                 video_dirs.append(d)
 
-        for vid_idx, vdir in enumerate(sorted(video_dirs)):
+        for vdir in sorted(video_dirs):
             frames = sorted(list(vdir.glob("*.jpg")) + list(vdir.glob("*.png")))
             if len(frames) <= t:
                 continue
@@ -54,6 +54,7 @@ class FramePredictionDataset(Dataset):
             vid_id = str(vdir.relative_to(self.root_dir)) if recursive else vdir.name
             if self.video_filter is not None and vid_id not in self.video_filter:
                 continue
+            vid_idx = len(self.videos)  # keep indices aligned with self.videos entries after filtering
             self.videos.append((vid_id, frames))
             for start in range(0, len(frames) - t, stride):
                 self.samples.append((vid_idx, start))
