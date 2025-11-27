@@ -236,14 +236,16 @@ def main() -> None:
                 "scaler": scaler.state_dict() if use_amp else None,
                 "args": vars(args),
                 "val_loss": val_loss,
-                "best_val": best_val,
+                "train_loss": avg_loss,
+                "best_metric": best_metric,
                 "best_epoch": best_epoch,
             },
             ckpt_path,
         )
 
-    if val_loader is not None and best_epoch > 0:
-        print(f"[best] epoch={best_epoch} val_loss={best_val:.5f} -> {out_dir/'att_unet_best.pth'}")
+    if best_epoch > 0:
+        metric_name = "val_loss" if val_loader is not None else "train_loss"
+        print(f"[best] epoch={best_epoch} {metric_name}={best_metric:.5f} -> {out_dir/'att_unet_best.pth'}")
 
 
 if __name__ == "__main__":
