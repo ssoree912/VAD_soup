@@ -489,7 +489,10 @@ def main() -> None:
                 "num_frames": np.array(frame_count, dtype=np.int32),
             }
             if args.use_yolo:
+                # YOLO / YOLO-World 모드: 프롬프트 리스트를 클래스 이름으로 저장
                 payload["class_names"] = np.array(yolo_prompts, dtype=object)
+            else:
+                payload["class_names"] = np.array(["anomaly"], dtype=object)
 
             np.save(out_video_dir / "detections.npy", payload, allow_pickle=True)
             print(f"[save] detections -> {out_video_dir / 'detections.npy'}")
