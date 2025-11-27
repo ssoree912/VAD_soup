@@ -50,6 +50,30 @@ def load_detections(path: Path) -> Dict[str, np.ndarray]:
     raise ValueError(f"Unsupported detections format at {path}: {type(payload)}")
 
 
+def load_frame_labels_ipad(root: Path, video_rel: str) -> Optional[np.ndarray]:
+    """
+    Load frame-level GT labels for IPAD-like structure:
+      root/<scenario>/test_label/<video>.npy
+    where <video> is zero-padded to 3 digits.
+    video_rel: e.g., 'R01/testing/frames/09' or 'S01/testing/frames/10'
+    """
+    parts = Path(video_rel).parts
+    if len(parts) < 3:
+        return None
+    scenario = parts[0]
+    vid_leaf = parts[-1]
+    try:
+        vid_int = int(vid_leaf)
+    except ValueError:
+        return None
+    fname = f"{vid_int:03d}.npy"
+    label_path = root / scenario / "test_label" / fname
+    if not label_path.is_file():
+        return None
+    arr = np.load(label_path)
+    return np.asarray(arr, dtype=np.float32).reshape(-1)
+
+
 def overlay_heatmap(frame: np.ndarray, err: np.ndarray, alpha: float = 0.5) -> np.ndarray:
     """
     Resize err(H,W) to frame size and overlay as JET heatmap.
@@ -122,8 +146,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Visualize Attn U-Net error maps & detections vs GT pixel masks."
     )
-    p.add_argument("--video", required=True, help="Video id, e.g., 01_0015")
-    p.add_argument("--frames_root", required=True, help="Root with testing frames (…/testing/frames)")
+    p.add_argument("--video", required=True, help="Video id (relative path ok), e.g., 01_0015 or R01/testing/frames/09")
+    p.add_argument("--frames_root", required=True, help="Root with testing frames (…/testing/frames or IPAD root)")
     p.add_argument("--errmaps_root", required=True, help="Root with Attn U-Net error maps (…/att_unet_errmaps)")
     p.add_argument(
         "--detections_root",
@@ -132,8 +156,15 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--gt_pixel_masks",
-        required=True,
-        help="Root with test_pixel_mask .npy files (e.g. data/shanghaitech/testing/test_pixel_mask)",
+        required=False,
+        default=None,
+        help="Root with test_pixel_mask .npy files (e.g. data/shanghaitech/testing/test_pixel_mask). Optional.",
+    )
+    p.add_argument(
+        "--frame_labels_root",
+        required=False,
+        default=None,
+        help="Root for frame-level labels (IPAD): <root>/<scenario>/test_label/<vid>.npy",
     )
     p.add_argument(
         "--output_dir",
@@ -169,12 +200,14 @@ def main() -> None:
     frames_dir = Path(args.frames_root) / video
     err_dir = Path(args.errmaps_root) / video
     det_path = Path(args.detections_root) / video / "detections.npy"
-    gt_root = Path(args.gt_pixel_masks)
-    out_dir = Path(args.output_dir) / video
+    gt_root = Path(args.gt_pixel_masks) if args.gt_pixel_masks else None
+    frame_labels_root = Path(args.frame_labels_root) if args.frame_labels_root else None
+    out_dir = Path(args.output_dir) / video.replace("/", "_")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Load GT pixel masks
-    gt_masks = load_pixel_masks(gt_root, video)
+    gt_masks = load_pixel_masks(gt_root, video) if gt_root else None
+    frame_labels = load_frame_labels_ipad(frame_labels_root, video) if frame_labels_root else None
 
     # Load detections
     det = load_detections(det_path)
@@ -261,6 +294,13 @@ def main() -> None:
         if gt_masks is not None and frame_idx < len(gt_masks):
             gt_mask = gt_masks[frame_idx]
             draw_gt_mask(overlay, gt_mask, color=(0, 255, 0), thickness=2)
+        # Frame-level label (IPAD)
+        frame_label_txt = ""
+        if frame_labels is not None and frame_idx < len(frame_labels):
+            lbl = frame_labels[frame_idx]
+            frame_label_txt = f"GT frame_label: {int(lbl)}"
+            if lbl >= 0.5:
+                cv2.rectangle(overlay, (0, 0), (overlay.shape[1]-1, overlay.shape[0]-1), (0, 0, 255), 2)
 
         # Detections for this frame
         boxes = boxes_seq[i] if i < len(boxes_seq) else np.zeros((0, 4), dtype=np.float32)
@@ -360,6 +400,8 @@ def main() -> None:
         txt2 = f"Det boxes: {len(boxes)}"
         cv2.putText(overlay, txt1, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(overlay, txt2, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        if frame_label_txt:
+            cv2.putText(overlay, frame_label_txt, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
 
         out_path = out_dir / f"{frame_idx:06d}_overlay.jpg"
         cv2.imwrite(str(out_path), overlay)

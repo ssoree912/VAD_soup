@@ -69,6 +69,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lanp_score_thr", type=float, default=None, help="LANP 점수 하한(없으면 비활성).")
     p.add_argument("--obj_box_mode", choices=["full", "refined"], default="full",
                    help="full=YOLO 박스 유지, refined=YOLO∩에러마스크 블랍으로 재계산.")
+    p.add_argument("--recursive", action="store_true",
+                   help="frames_root 하위의 모든 비디오 폴더를 재귀적으로 탐색하고, 상대경로를 key로 사용.")
+    p.add_argument("--split_file", type=str, default=None,
+                   help="처리할 비디오 리스트가 담긴 split txt (<rel_path>,label,frame_len). 제공 시 해당 항목만 처리.")
     return p.parse_args()
 
 
@@ -370,13 +374,43 @@ def main() -> None:
             prompt_path = det_root / "yolo_prompts.txt"
             prompt_path.write_text("\n".join(yolo_prompts), encoding="utf-8")
 
-    video_dirs = sorted([p for p in frames_root.iterdir() if p.is_dir()])
-    for video_dir in tqdm(video_dirs, desc="Videos"):
+    def has_frames(dir_path: Path) -> bool:
+        return any(dir_path.glob("*.jpg")) or any(dir_path.glob("*.png"))
+
+    video_entries: List[Tuple[Path, str]] = []
+    if args.split_file:
+        split_path = Path(args.split_file)
+        if not split_path.is_file():
+            raise FileNotFoundError(f"split file not found: {split_path}")
+        with split_path.open("r") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                rel_path = line.strip().split(",")[0]
+                v_dir = frames_root / rel_path
+                if not v_dir.is_dir():
+                    print(f"[warn] split entry missing frames dir: {v_dir}")
+                    continue
+                if not has_frames(v_dir):
+                    print(f"[warn] no frames in split entry dir: {v_dir}")
+                    continue
+                video_entries.append((v_dir, rel_path))
+    else:
+        if args.recursive:
+            video_dirs = sorted([p for p in frames_root.rglob("*") if p.is_dir() and has_frames(p)])
+        else:
+            video_dirs = sorted([p for p in frames_root.iterdir() if p.is_dir()])
+        for vdir in video_dirs:
+            rel_path = str(vdir.relative_to(frames_root))
+            video_entries.append((vdir, rel_path))
+
+    for video_dir, rel_path in tqdm(video_entries, desc="Videos"):
         vid = video_dir.name
-        if vid not in lanp_scores:
-            print(f"[warn] missing LANP scores for video {vid}, skipping")
+        key = rel_path if rel_path in lanp_scores else vid if vid in lanp_scores else None
+        if key is None:
+            print(f"[warn] missing LANP scores for video {rel_path} (or {vid}), skipping")
             continue
-        scores = np.asarray(lanp_scores[vid], dtype=np.float32).reshape(-1)
+        scores = np.asarray(lanp_scores[key], dtype=np.float32).reshape(-1)
         frame_paths = sorted(list(video_dir.glob("*.jpg")) + list(video_dir.glob("*.png")))
         if not frame_paths:
             print(f"[warn] no frames found for {vid}")
@@ -392,7 +426,7 @@ def main() -> None:
         if top_indices.size == 0:
             continue
 
-        video_out = out_root / vid
+        video_out = out_root / Path(rel_path if rel_path in lanp_scores else vid)
         video_out.mkdir(parents=True, exist_ok=True)
 
         boxes_seq: List[np.ndarray] = []
@@ -476,7 +510,7 @@ def main() -> None:
         print(f"[{vid}] processed={processed}, skipped_prefix(<t)={skipped_prefix}")
 
         if det_root is not None and processed > 0:
-            out_video_dir = det_root / vid
+            out_video_dir = det_root / Path(rel_path if rel_path in lanp_scores else vid)
             out_video_dir.mkdir(parents=True, exist_ok=True)
             frame_files = np.array([p.name for p in frame_paths[:frame_count]], dtype=object)
             frame_indices = np.arange(frame_count, dtype=np.int32)
