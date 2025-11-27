@@ -622,6 +622,8 @@ def parse_args():
                         help='Skip training and only run evaluation/export once after loading data.')
     parser.add_argument('--metrics_json_path', type=str, default=None,
                         help='Optional JSON file to append ROC/PR metrics for each evaluation step.')
+    parser.add_argument('--pretrained_path', '--pretrained_ckpt', dest='pretrained_path', type=str, default=None,
+                        help='Path to a trained checkpoint (.pkl/.pth) to load before eval/train.')
 
     if config_args.config_file:
         with open(config_args.config_file, 'r') as f:
@@ -705,16 +707,14 @@ if __name__ == '__main__':
         logger.info('Loaded ROI snippet scores from {} ({} videos).'.format(
             args.roi_scores_path, len(roi_snippet_scores)))
     
-    '''load pretrained model'''
-    if args.pretrained_path is not None:
-        logger.info('load the pretrained model....')
-        model.load_state_dict(torch.load(args.pretrained_ckpt))
-        param_str_test = args.pretrained_ckpt.strip().split('/')[-2]
-        scores_dict, _, _, _ = test(model, test_loader=test_loader, device=device)
-        np.save('./test_results/{}/{}_test.npy'.format(args.dataset, param_str_test[-24:-5]), scores_dict)
-        scores_dict = test(model=model, test_loader=train_eval_loader, device=device, is_train_sample=True)
-        np.save('./test_results/{}/{}_train.npy'.format(args.dataset, param_str_test[-24:-5]), scores_dict)
-        logger.info('load the pretrained model....finished!')
+    # Load pretrained model if provided
+    if args.pretrained_path:
+        logger.info('Loading pretrained model from %s', args.pretrained_path)
+        ckpt_path_to_load = args.pretrained_path
+        state = torch.load(ckpt_path_to_load, map_location=device)
+        state_dict = state.get("state_dict", state)
+        model.load_state_dict(state_dict)
+        logger.info('Loaded pretrained weights.')
 
     optimizer_model = torch.optim.RMSprop(model.parameters(), lr=args.lr, momentum=0.6)
      
