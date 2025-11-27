@@ -9,6 +9,8 @@ def find_dataset_using_name(dataset_name):
     # will be imported.
     if dataset_name == 'shanghaitech':
         perx = 'sh'
+    elif dataset_name == 'sos':
+        perx = 'sos'
     elif dataset_name == 'ipad':
         perx = 'ipad'
     elif dataset_name == 'ucf-crime':

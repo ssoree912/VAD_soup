@@ -22,10 +22,12 @@ class FramePredictionDataset(Dataset):
         return_metadata: bool = False,
         recursive: bool = False,
         filter_training_only: bool = False,
+        video_list: List[str] | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.t = t
         self.return_metadata = return_metadata
+        self.video_filter = set(video_list) if video_list else None
 
         self.videos: List[Tuple[str, List[Path]]] = []
         self.samples: List[Tuple[int, int]] = []  # (video_idx, start_frame_idx)
@@ -50,6 +52,8 @@ class FramePredictionDataset(Dataset):
                 continue
             # Use relative path as ID in recursive mode to avoid collisions.
             vid_id = str(vdir.relative_to(self.root_dir)) if recursive else vdir.name
+            if self.video_filter is not None and vid_id not in self.video_filter:
+                continue
             self.videos.append((vid_id, frames))
             for start in range(0, len(frames) - t, stride):
                 self.samples.append((vid_idx, start))

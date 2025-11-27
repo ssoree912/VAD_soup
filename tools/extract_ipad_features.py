@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--clip-len", type=int, default=16, help="클립 길이(프레임 수).")
     p.add_argument("--stride", type=int, default=16, help="클립 stride. 기본값=비중첩.")
     p.add_argument("--sample-size", type=int, default=112, help="입력 해상도 (Scale->CenterCrop).")
+    p.add_argument("--split-file", type=Path, default=None, help="(optional) 처리할 비디오 리스트 txt (<rel_path>,label,frame_len).")
     return p.parse_args()
 
 
@@ -143,15 +144,27 @@ def main() -> None:
 
     out_root = args.out_root
     all_video_dirs = []
-    for scenario_dir in sorted(p for p in args.ipad_root.iterdir() if p.is_dir()):
-        for split in ("training", "testing"):
-            frames_root = scenario_dir / split / "frames"
-            if not frames_root.is_dir():
+    if args.split_file:
+        lines = Path(args.split_file).read_text().splitlines()
+        for line in lines:
+            if not line.strip():
                 continue
-            all_video_dirs.extend(sorted([p for p in frames_root.iterdir() if p.is_dir()]))
+            rel = line.strip().split(",")[0]
+            vdir = args.ipad_root / rel
+            if vdir.is_dir():
+                all_video_dirs.append(vdir)
+            else:
+                print(f"[warn] skip missing {vdir}")
+    else:
+        for scenario_dir in sorted(p for p in args.ipad_root.iterdir() if p.is_dir()):
+            for split in ("training", "testing"):
+                frames_root = scenario_dir / split / "frames"
+                if not frames_root.is_dir():
+                    continue
+                all_video_dirs.extend(sorted([p for p in frames_root.iterdir() if p.is_dir()]))
 
     if not all_video_dirs:
-        raise RuntimeError(f"No video frame folders found under {args.ipad_root}")
+        raise RuntimeError(f"No video frame folders found under {args.ipad_root} (split_file={args.split_file})")
 
     for video_dir in tqdm(all_video_dirs, desc="Videos"):
         rel = video_dir.relative_to(args.ipad_root)  # e.g., S01/testing/frames/10
