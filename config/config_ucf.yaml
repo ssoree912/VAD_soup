@@ -42,7 +42,7 @@ feature_path: './data/ucf-crime/features'
 anno_path: './data/ucf-crime/Temporal_Anomaly_Annotation_New.txt'
 training_split: './data/ucf-crime/Anomaly_Train.txt'
 testing_split: './data/ucf-crime/Anomaly_Test.txt'
-np_scores_path: './data/ucf-crime/pseudo_label_scores_ucf.npy'
+np_scores_path: 
 feature_name_end: '_res.npy'
 
 th_auc: 0.5

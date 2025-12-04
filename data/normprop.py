@@ -65,9 +65,12 @@ def normality_propagation(features, abn_num=7, is_ucf=False):
     Wn = bulid_affinity_matrix(features, k, is_ucf=is_ucf)
 
     # direct solve version
-    Z = np.zeros(T)
     A = scipy.sparse.eye(Wn.shape[0]) - alpha * Wn
-    Z, _ = scipy.sparse.linalg.cg(A, Y_input, tol=1e-6, maxiter=10)
+    # cg API differs across SciPy versions; try rtol/atol first, fallback to tol-only.
+    try:
+        Z, _ = scipy.sparse.linalg.cg(A, Y_input, rtol=1e-6, maxiter=10)
+    except TypeError:
+        Z, _ = scipy.sparse.linalg.cg(A, Y_input, tol=1e-6, maxiter=10)
     Z[Z < 0] = 0
     Z[nor_idxs_pre] = np.max(Z)
 
