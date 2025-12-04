@@ -25,3 +25,6 @@ vis/overlays/
 data/TU-DAT/
 data/__MACOSX/
 data/IPAD/
+data/ucf-crime/testing/
+data/ucf-crime/training/
+data/ucf-crime/features/
