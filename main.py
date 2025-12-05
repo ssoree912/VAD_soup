@@ -216,10 +216,25 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
         total_scores = []
         total_labels = []
         for video, snippet_scores in scores_dist.items():
+            snippet_arr = np.asarray(snippet_scores)
             label_chunks = labels_dist.get(video)
             if label_chunks is None:
                 continue
-            for score, label in zip(snippet_scores, label_chunks):
+            if snippet_arr.ndim == 0:
+                logger.warning(f"Video {video}: snippet_scores is 0-d (value={snippet_arr}). Skipping this video.")
+                continue
+            snippet_arr = snippet_arr.reshape(-1)
+            label_chunks = np.asarray(label_chunks)
+            if label_chunks.ndim == 0:
+                logger.warning(f"Video {video}: label_chunks is 0-d (value={label_chunks}). Skipping this video.")
+                continue
+            if label_chunks.ndim == 1:
+                logger.warning(f"Video {video}: label_chunks is 1-d with shape {label_chunks.shape}. Skipping this video.")
+                continue
+            if len(snippet_arr) != len(label_chunks):
+                logger.warning(f"Video {video}: score/label length mismatch ({len(snippet_arr)} vs {len(label_chunks)}). Skipping this video.")
+                continue
+            for score, label in zip(snippet_arr, label_chunks):
                 total_scores.extend([score] * len(label))
                 total_labels.extend(label.astype(int).tolist())
 

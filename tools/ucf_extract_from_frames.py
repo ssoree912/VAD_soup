@@ -54,6 +54,14 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--data_root", required=True, help="Root containing training/ testing/ and Anomaly_*.txt")
     ap.add_argument("--feature_out", required=True, help="Output folder for flattened feature files")
     ap.add_argument("--feature_suffix", default="_res.npy", help="Suffix appended to video name (config uses _res.npy)")
+    ap.add_argument("--frames_root", default="frames",
+                    help="Relative path under data_root where frames are stored (expects training/ and testing/ inside).")
+    ap.add_argument("--train_split", default="Anomaly_Train.txt",
+                    help="Train split filename (relative to data_root).")
+    ap.add_argument("--test_split", default="Anomaly_Test.txt",
+                    help="Test split filename (relative to data_root).")
+    ap.add_argument("--train_only", action="store_true", help="Process only train split.")
+    ap.add_argument("--test_only", action="store_true", help="Process only test split.")
     ap.add_argument("--clip_len", type=int, default=16, help="Frames per clip")
     ap.add_argument("--stride", type=int, default=8, help="Stride between clips")
     ap.add_argument("--resize", type=int, default=128, help="Resize shorter side before center crop")
@@ -149,38 +157,38 @@ def collect_needed_video_names(txt_path: str) -> List[str]:
 def find_frame_paths(video_name: str, data_root: str) -> List[str]:
     """Return sorted frame paths for a given video_name.
 
-    Supports two layouts:
-      1) training/<class>/<video_name>/*.{jpg,png}
-      2) training/<class>/<video_name>_*.{jpg,png} (frames dumped in class dir)
-    and similarly under testing/.
+    Supports layouts like:
+      - <frames_root>/training/<class>/<video_name>/*.{jpg,png}
+      - <frames_root>/training/<class>/<video_name>_*.{jpg,png}
+      - same under testing/
+      - fallback recursive search for directories named video_name
     """
-    patterns_dir = [
-        os.path.join(data_root, "training", "*", video_name),
-        os.path.join(data_root, "testing", "*", video_name),
-    ]
-    for pat in patterns_dir:
-        matches = glob.glob(pat)
-        if matches:
-            frame_dir = matches[0]
-            frames = sorted(
-                glob.glob(os.path.join(frame_dir, "*.jpg")) + glob.glob(os.path.join(frame_dir, "*.png"))
-            )
-            if frames:
-                return frames
+    frames_root = data_root  # already points to frames_root/training|testing in caller
+    candidates = []
+    # patterns with nested video folder
+    candidates += glob.glob(os.path.join(frames_root, "*", "*", video_name, "*.*"))
+    # patterns with video_name prefix in class folder
+    candidates += glob.glob(os.path.join(frames_root, "*", "*", f"{video_name}*.*"))
 
-    # Fallback: frames named with prefix in the class folder
-    frames = sorted(glob.glob(os.path.join(data_root, "training", "*", f"{video_name}*.jpg")) +
-                    glob.glob(os.path.join(data_root, "training", "*", f"{video_name}*.png")) +
-                    glob.glob(os.path.join(data_root, "testing", "*", f"{video_name}*.jpg")) +
-                    glob.glob(os.path.join(data_root, "testing", "*", f"{video_name}*.png")))
+    # If none, walk recursively to find a directory named video_name
+    if not candidates:
+        for root, dirs, files in os.walk(frames_root):
+            if os.path.basename(root) == video_name:
+                for fname in files:
+                    if fname.lower().endswith((".jpg", ".png")):
+                        candidates.append(os.path.join(root, fname))
+    frames = [p for p in candidates if p.lower().endswith((".jpg", ".png"))]
+    frames = sorted(frames, key=lambda x: (os.path.dirname(x), x))
     if frames:
         return frames
 
-    raise FileNotFoundError(f"Frames for {video_name} not found under training/ or testing/")
+    raise FileNotFoundError(f"Frames for {video_name} not found under {frames_root}")
 
 
 def main():
     args = parse_args()
+    if args.train_only and args.test_only:
+        raise ValueError("Choose only one of --train_only or --test_only (or neither to run both).")
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     os.makedirs(args.feature_out, exist_ok=True)
 
@@ -196,12 +204,18 @@ def main():
             print(f"[info] loaded pseudo scores dict with {len(pseudo_scores)} entries")
 
     needed = set()
-    for txt in ["Anomaly_Train.txt", "Anomaly_Test.txt"]:
-        txt_path = os.path.join(args.data_root, txt)
-        if os.path.exists(txt_path):
-            needed.update(collect_needed_video_names(txt_path))
+    if not args.test_only:
+        train_split_path = os.path.join(args.data_root, args.train_split)
+        if os.path.exists(train_split_path):
+            needed.update(collect_needed_video_names(train_split_path))
         else:
-            print(f"[warn] split file not found: {txt_path}")
+            print(f"[warn] train split not found: {train_split_path}")
+    if not args.train_only:
+        test_split_path = os.path.join(args.data_root, args.test_split)
+        if os.path.exists(test_split_path):
+            needed.update(collect_needed_video_names(test_split_path))
+        else:
+            print(f"[warn] test split not found: {test_split_path}")
 
     if not needed:
         print("[warn] no videos found from split files; nothing to do.")
@@ -214,6 +228,9 @@ def main():
     skipped_short = 0
     missing_frames = []
 
+    base_train = os.path.join(args.data_root, args.frames_root, "training")
+    base_test = os.path.join(args.data_root, args.frames_root, "testing")
+
     for vid in sorted(needed):
         out_path = os.path.join(args.feature_out, vid + args.feature_suffix)
         if os.path.exists(out_path):
@@ -222,7 +239,17 @@ def main():
             continue
 
         try:
-            frames = find_frame_paths(vid, args.data_root)
+            # prefer training frames if processing train split, otherwise testing
+            frames = None
+            if not args.test_only:
+                try:
+                    frames = find_frame_paths(vid, base_train)
+                except FileNotFoundError:
+                    frames = None
+            if frames is None and not args.train_only:
+                frames = find_frame_paths(vid, base_test)
+            if frames is None:
+                raise FileNotFoundError
         except FileNotFoundError:
             missing_frames.append(vid)
             print(f"[missing] frames not found for {vid}")
