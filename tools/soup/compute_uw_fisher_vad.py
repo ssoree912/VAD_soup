@@ -23,8 +23,11 @@ from torch.utils.data import DataLoader, SequentialSampler
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(ROOT_DIR)
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+# Add both tools/ and repo root to sys.path to allow running from arbitrary CWDs
+REPO_ROOT = os.path.dirname(PROJECT_ROOT)
+for path in (PROJECT_ROOT, REPO_ROOT):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from data.dataset_loader import CreateDataset
 from model import AD_Model

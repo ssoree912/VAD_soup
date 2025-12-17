@@ -9,8 +9,10 @@ import sys
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(ROOT_DIR)
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+REPO_ROOT = os.path.dirname(PROJECT_ROOT)
+for path in (PROJECT_ROOT, REPO_ROOT):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from model import AD_Model
 
