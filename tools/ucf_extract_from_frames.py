@@ -72,8 +72,16 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--device", default="cuda", help="cuda or cpu")
     ap.add_argument("--pad_short", action="store_true",
                     help="If set, pad short videos to clip_len by repeating last frame instead of skipping.")
+    ap.add_argument("--pad_tail", action="store_true", default=True,
+                    help="Pad/emit a final tail clip when frames are not aligned to stride (default: on).")
+    ap.add_argument("--no_pad_tail", dest="pad_tail", action="store_false",
+                    help="Disable tail padding; use exact stride-only clips.")
+    ap.add_argument("--reverse", action="store_true",
+                    help="Process videos in reverse split order (useful to split work across workers).")
     ap.add_argument("--align_pseudo", default=None,
                     help="Path to pseudo label scores npy (dict) to align clip count to len(pseudo_label_scores).")
+    ap.add_argument("--reprocess_mismatch", action="store_true",
+                    help="If a feature file exists, re-extract when its clip count does not match expected (from frames or pseudo).")
     ap.add_argument("--num_workers", type=int, default=4, help="Num workers for dataloader-ish loop (unused, kept for parity)")
     return ap.parse_args()
 
@@ -185,6 +193,21 @@ def find_frame_paths(video_name: str, data_root: str) -> List[str]:
     raise FileNotFoundError(f"Frames for {video_name} not found under {frames_root}")
 
 
+def expected_clip_count(frames: List[str], args, pseudo_len: int | None = None) -> int:
+    """Compute expected number of clips given frame count or pseudo length."""
+    if pseudo_len is not None and pseudo_len > 0:
+        return int(pseudo_len)
+    n_frames = len(frames)
+    if n_frames == 0:
+        return 0
+    if n_frames < args.clip_len:
+        return 1 if args.pad_short else 0
+    base = 1 + (n_frames - args.clip_len) // args.stride
+    if args.pad_tail and (n_frames - args.clip_len) % args.stride != 0:
+        base += 1
+    return base
+
+
 def main():
     args = parse_args()
     if args.train_only and args.test_only:
@@ -231,12 +254,12 @@ def main():
     base_train = os.path.join(args.data_root, args.frames_root, "training")
     base_test = os.path.join(args.data_root, args.frames_root, "testing")
 
-    for vid in sorted(needed):
+    video_iter = sorted(needed)
+    if args.reverse:
+        video_iter = list(reversed(video_iter))
+
+    for vid in video_iter:
         out_path = os.path.join(args.feature_out, vid + args.feature_suffix)
-        if os.path.exists(out_path):
-            skipped_exists += 1
-            # optional: print minimal log
-            continue
 
         try:
             # prefer training frames if processing train split, otherwise testing
@@ -254,6 +277,26 @@ def main():
             missing_frames.append(vid)
             print(f"[missing] frames not found for {vid}")
             continue
+
+        pseudo_len = None
+        if pseudo_scores is not None and vid in pseudo_scores:
+            pseudo_len = len(pseudo_scores[vid].get("pseudo_label_scores", []))
+
+        if os.path.exists(out_path):
+            try:
+                arr = np.load(out_path)
+                cur_clips = arr.shape[0] if arr.ndim > 1 else 0
+            except Exception:
+                cur_clips = -1
+            exp_clips = expected_clip_count(frames, args, pseudo_len)
+            if cur_clips != exp_clips or cur_clips <= 0:
+                print(f"[mismatch] {vid}: existing clips={cur_clips}, expected={exp_clips}")
+            if not args.reprocess_mismatch or (cur_clips == exp_clips and cur_clips > 0):
+                skipped_exists += 1
+                continue
+            else:
+                print(f"[redo] {vid}: existing clips={cur_clips}, expected={exp_clips}, re-extracting")
+
         if len(frames) < args.clip_len:
             if not args.pad_short:
                 print(f"[skip-short] {vid}: not enough frames ({len(frames)})")
@@ -266,7 +309,7 @@ def main():
 
         feats = []
         if pseudo_scores is not None and vid in pseudo_scores:
-            zlen = len(pseudo_scores[vid].get("pseudo_label_scores", []))
+            zlen = pseudo_len or 0
             if zlen == 0:
                 print(f"[warn] {vid}: pseudo_label_scores empty, fallback to stride scan")
             else:
@@ -286,6 +329,15 @@ def main():
                 with torch.no_grad():
                     feat = model(clip)  # [1, C]
                 feats.append(feat.squeeze(0).cpu())
+            # tail padding to cover final remainder frames
+            if args.pad_tail and len(frames) >= args.clip_len:
+                remainder = (len(frames) - args.clip_len) % args.stride
+                if remainder != 0:
+                    tail = frames[-args.clip_len:]
+                    clip = load_clip(tail, transform).unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        feat = model(clip)
+                    feats.append(feat.squeeze(0).cpu())
 
         if not feats:
             print(f"[warn] {vid}: no clips extracted")

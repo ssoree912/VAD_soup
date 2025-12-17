@@ -241,6 +241,10 @@ def test(model, test_loader, device, is_train_sample=False, roi_scores: Optional
         total_score_frames = np.array(total_scores)
         total_label_frames = np.array(total_labels)
 
+        if total_label_frames.size == 0 or total_score_frames.size == 0:
+            logger.warning("No valid scores/labels to evaluate (all videos skipped or mismatched). Returning zeros.")
+            return scores_dist, 0.0, 0.0, labels_dist
+
         prauc_frames, rocauc_frames = calc_metrics(total_score_frames, total_label_frames)
     
         logger.info('Testing: pr@ {:.2f}%, '
